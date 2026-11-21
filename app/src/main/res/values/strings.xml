@@ -1,0 +1,49 @@
+<resources>
+    <string name="app_name">ArcCompass</string>
+    <string name="brand_studio">ArcShift Studios</string>
+
+    <!-- Navigation -->
+    <string name="nav_compass">Compass</string>
+    <string name="nav_level">Level</string>
+    <string name="nav_arcpark">ArcPark</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Sensor Diagnostics -->
+    <string name="diagnostics_title">Sensor Diagnostics</string>
+    <string name="diagnostics_subtitle">ArcShift Hardware Engine</string>
+    <string name="diagnostics_entry_title">Sensor Diagnostics</string>
+    <string name="diagnostics_entry_desc">Inspect hardware sensors, accuracy and device capabilities.</string>
+    <string name="action_rescan">Rescan hardware</string>
+    <string name="action_grant_location">Grant Location</string>
+    <string name="action_location_settings">Location Settings</string>
+    <string name="action_back">Navigate back</string>
+    <string name="section_device_overview">Device &amp; Telemetry</string>
+    <string name="section_capabilities">Evaluated Capabilities</string>
+    <string name="section_core_sensors">Core Sensor Matrix (8)</string>
+    <string name="section_permissions_lifecycle">Permissions &amp; Lifecycle</string>
+
+    <!-- Status Badges -->
+    <string name="status_available">Available</string>
+    <string name="status_unavailable">Unavailable</string>
+    <string name="status_permission_required">Permission required</string>
+    <string name="status_initializing">Initializing</string>
+    <string name="status_accuracy_unreliable">Accuracy unreliable</string>
+
+    <!-- Sensor Labels -->
+    <string name="sensor_accelerometer">Accelerometer</string>
+    <string name="sensor_magnetic_field">Magnetic Field (Magnetometer)</string>
+    <string name="sensor_gyroscope">Gyroscope</string>
+    <string name="sensor_rotation_vector">Rotation Vector</string>
+    <string name="sensor_gravity">Gravity</string>
+    <string name="sensor_linear_acceleration">Linear Acceleration</string>
+    <string name="sensor_pressure">Pressure (Barometer)</string>
+    <string name="sensor_significant_motion">Significant Motion</string>
+
+    <!-- Capability Labels -->
+    <string name="cap_compass">Compass Heading</string>
+    <string name="cap_level">Surface Level</string>
+    <string name="cap_magnetic_monitor">Magnetic Field Monitor</string>
+    <string name="cap_gyro_diagnostics">Gyroscope Diagnostics</string>
+    <string name="cap_location">Location Services</string>
+    <string name="cap_altitude">Altitude Estimation</string>
+</resources>

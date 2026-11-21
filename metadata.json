@@ -1,0 +1,6 @@
+{
+  "name": "ArcCompass",
+  "description": "Offline-first precision compass, level, location, and parking retrieval utility by ArcShift Studios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
