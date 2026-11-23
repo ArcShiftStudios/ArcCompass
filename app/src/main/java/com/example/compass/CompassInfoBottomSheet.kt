@@ -82,8 +82,8 @@ import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassDialog
 import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.StatusWarningAmber
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import java.util.Locale
 
 enum class CompassSheetDetent(val label: String) {
@@ -115,7 +115,9 @@ fun CompassInfoBottomSheet(
     onOpenLocationSettings: () -> Unit,
     onSavePlace: (name: String, category: String) -> Unit,
     onDeletePlace: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onToggleRawMode: (Boolean) -> Unit = {},
+    onRunDiagnosticCheck: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     var showAddPlaceDialog by remember { mutableStateOf(false) }
@@ -222,7 +224,8 @@ fun CompassInfoBottomSheet(
                         Text(
                             text = "Instrument Deck",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         val summaryLine = buildString {
                             if (loc.latitude != null && loc.longitude != null) {
@@ -246,7 +249,7 @@ fun CompassInfoBottomSheet(
                         }
                         Text(
                             text = summaryLine,
-                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            style = MaterialTheme.arcTextRoles.technical,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -276,7 +279,8 @@ fun CompassInfoBottomSheet(
                             } else {
                                 Icons.Outlined.ExpandLess
                             },
-                            contentDescription = "Cycle sheet height"
+                            contentDescription = "Cycle sheet height",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -343,12 +347,13 @@ fun CompassInfoBottomSheet(
                                         "Location services disabled"
                                     else -> "Waiting for location fix…"
                                 },
-                                style = MaterialTheme.typography.titleMedium
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             if (settings.showCoordinates && loc.latitude != null && loc.longitude != null) {
                                 Text(
                                     text = String.format(Locale.US, "%.6f, %.6f", loc.latitude, loc.longitude),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    style = MaterialTheme.arcTextRoles.technical,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -456,7 +461,8 @@ fun CompassInfoBottomSheet(
                                     )
                                     Text(
                                         text = "Saved Places (${savedPlaces.size})",
-                                        style = MaterialTheme.typography.titleSmall
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Button(
@@ -513,7 +519,11 @@ fun CompassInfoBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("True North Correction", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "True North Correction",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                     val declMsg = headingState.declinationDegrees?.let {
                                         String.format(Locale.US, "Geomagnetic declination %+.1f°", it)
                                     } ?: "Requires GPS fix to compute declination"
@@ -521,7 +531,7 @@ fun CompassInfoBottomSheet(
                                         text = declMsg,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (settings.trueNorthEnabled && headingState.declinationDegrees == null) {
-                                            StatusWarningAmber
+                                            MaterialTheme.arcSemanticColors.warning
                                         } else {
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                         }
@@ -550,7 +560,11 @@ fun CompassInfoBottomSheet(
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(16.dp)
                                     )
-                                    Text("Units & Formats", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "Units & Formats",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -600,7 +614,11 @@ fun CompassInfoBottomSheet(
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(16.dp)
                                     )
-                                    Text("Instrument Quick Controls", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "Instrument Quick Controls",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -620,25 +638,35 @@ fun CompassInfoBottomSheet(
                                                 onClick = { onSelectExpressiveShape(shape) },
                                                 label = { Text(shape.label) },
                                                 colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                                                 )
                                             )
                                         }
                                     }
+                                    FilterChip(
+                                        selected = settings.rawModeEnabled,
+                                        onClick = { onToggleRawMode(!settings.rawModeEnabled) },
+                                        label = { Text("RAW Mode") },
+                                        modifier = Modifier.testTag("sheet_raw_mode_chip")
+                                    )
                                 }
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    OutlinedButton(onClick = onOpenCalibration) {
-                                        Icon(Icons.Outlined.CompassCalibration, null, Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Calibrate")
-                                    }
                                     OutlinedButton(onClick = onRescanHardware) {
                                         Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text("Rescan Hardware")
+                                    }
+                                    OutlinedButton(
+                                        onClick = onRunDiagnosticCheck,
+                                        modifier = Modifier.testTag("sheet_sensor_check_button")
+                                    ) {
+                                        Icon(Icons.Outlined.Explore, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Sensor Check")
                                     }
                                 }
                             }
@@ -683,6 +711,7 @@ private fun SavedPlaceRow(
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -697,6 +726,7 @@ private fun SavedPlaceRow(
                 Text(
                     text = place.name,
                     style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -772,7 +802,11 @@ private fun SavePlaceGlassDialog(
     var category by remember { mutableStateOf("Waypoint") }
 
     GlassDialog(onDismissRequest = onDismiss) {
-        Text("Pin Current Location", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            text = "Pin Current Location",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = name,

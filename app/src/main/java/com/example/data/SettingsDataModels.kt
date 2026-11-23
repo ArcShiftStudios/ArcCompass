@@ -31,6 +31,29 @@ enum class AccentPreset(val label: String) {
     EMERALD("Tactical Emerald")
 }
 
+enum class CompassSensorMode(val label: String, val description: String) {
+    AUTO_DEFAULT(
+        label = "Default (Auto)",
+        description = "Uses hardware Rotation Vector when available, with automatic fallback if unsupported"
+    ),
+    ROTATION_VECTOR(
+        label = "Rotation Vector",
+        description = "Hardware 9-axis / 6-axis fused orientation sensor"
+    ),
+    FUSION_ACCEL_MAG(
+        label = "Sensor Fusion (Accel + Mag)",
+        description = "Tilt-compensated Accelerometer + Magnetometer compass fusion"
+    ),
+    GAME_ROTATION_VECTOR(
+        label = "Game Rotation Vector",
+        description = "Relative gyro + accelerometer tracking (no magnetic North lock)"
+    ),
+    GYROSCOPE_RELATIVE(
+        label = "Gyroscope Relative",
+        description = "Relative turn tracking via gyroscope (drifts over time, no North lock)"
+    )
+}
+
 data class ArcCompassSettings(
     // Compass & Dial Customization
     val trueNorthEnabled: Boolean = false,
@@ -39,6 +62,10 @@ data class ArcCompassSettings(
     val expressiveAccentPreset: AccentPreset = AccentPreset.COOL_BLUE,
     val headingFormat: HeadingFormat = HeadingFormat.AZIMUTH,
     val showHeadingDecimals: Boolean = false,
+    val rawModeEnabled: Boolean = false,
+    val compassSensorMode: CompassSensorMode = CompassSensorMode.AUTO_DEFAULT,
+    val hasSeenCalibrationGuidance: Boolean = false,
+    val isLoaded: Boolean = false,
     // Appearance
     val themeMode: AppThemeMode = AppThemeMode.DARK,
     val accentPreset: AccentPreset = AccentPreset.COOL_BLUE,

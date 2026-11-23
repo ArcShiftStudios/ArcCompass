@@ -49,9 +49,8 @@ import com.example.data.GeoNavigationMath
 import com.example.data.HeadingFormat
 import com.example.sensor.CompassHeadingState
 import com.example.sensor.DiagnosticStatus
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.NorthIndicatorRed
-import com.example.ui.theme.SpaceGroteskFontFamily
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import com.example.ui.theme.resolveAccentColor
 import java.util.Locale
 import kotlin.math.PI
@@ -152,8 +151,10 @@ fun CompassDial(
 
     val textMeasurer = rememberTextMeasurer()
     val colorScheme = MaterialTheme.colorScheme
+    val textRoles = MaterialTheme.arcTextRoles
+    val semanticColors = MaterialTheme.arcSemanticColors
     val isDark = colorScheme.background.luminance() < 0.5f
-    val northColor = if (nightFilterActive) colorScheme.primary else NorthIndicatorRed
+    val northColor = if (nightFilterActive) colorScheme.primary else semanticColors.northMarker
     val precisionAccent = colorScheme.primary
     val expressiveAccent = resolveAccentColor(expressiveAccentPreset, isDark, nightFilterActive)
     val activeAccent = if (dialStyle == DialStyle.EXPRESSIVE) expressiveAccent else precisionAccent
@@ -164,35 +165,31 @@ fun CompassDial(
     val mutedInk = colorScheme.onSurfaceVariant
     val outlineColor = colorScheme.outline
 
-    val degreeTextStyle = remember(primaryInk, largeReadouts) {
-        TextStyle(
-            fontFamily = SpaceGroteskFontFamily,
+    val precisionCardinalStyle = remember(textRoles, primaryInk, largeReadouts) {
+        textRoles.compassDirection.copy(
+            fontSize = if (largeReadouts) 21.sp else 19.sp,
             fontWeight = FontWeight.Bold,
-            fontSize = if (largeReadouts) 17.sp else 15.sp,
             color = primaryInk
         )
     }
-    val minorLabelStyle = remember(mutedInk, largeReadouts) {
-        TextStyle(
-            fontFamily = JetBrainsMonoFontFamily,
+    val degreeLabelStyle = remember(textRoles, mutedInk, largeReadouts) {
+        textRoles.technical.copy(
             fontWeight = FontWeight.SemiBold,
-            fontSize = if (largeReadouts) 12.sp else 11.sp,
+            fontSize = if (largeReadouts) 12.5.sp else 11.5.sp,
             color = mutedInk
         )
     }
-    val cardinalStyle = remember(primaryInk) {
-        TextStyle(
-            fontFamily = SpaceGroteskFontFamily,
+    val expressiveCardinalStyle = remember(textRoles, primaryInk) {
+        textRoles.compassDirection.copy(
             fontWeight = FontWeight.Bold,
-            fontSize = 17.sp,
+            fontSize = 18.sp,
             color = primaryInk
         )
     }
-    val northCardinalStyle = remember(northColor) {
-        TextStyle(
-            fontFamily = SpaceGroteskFontFamily,
+    val northCardinalStyle = remember(textRoles, northColor, largeReadouts) {
+        textRoles.compassDirection.copy(
             fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
+            fontSize = if (largeReadouts) 22.sp else 20.sp,
             color = northColor
         )
     }
@@ -230,9 +227,9 @@ fun CompassDial(
                     mutedInk = mutedInk,
                     outlineColor = outlineColor,
                     textMeasurer = textMeasurer,
-                    cardinalStyle = cardinalStyle,
+                    cardinalStyle = expressiveCardinalStyle,
                     northCardinalStyle = northCardinalStyle,
-                    intercardinalStyle = minorLabelStyle
+                    intercardinalStyle = degreeLabelStyle
                 )
             } else {
                 drawPrecisionDial(
@@ -249,14 +246,14 @@ fun CompassDial(
                     mutedInk = mutedInk,
                     outlineColor = outlineColor,
                     textMeasurer = textMeasurer,
-                    degreeLabelStyle = minorLabelStyle,
-                    cardinalStyle = degreeTextStyle,
+                    degreeLabelStyle = degreeLabelStyle,
+                    cardinalStyle = precisionCardinalStyle,
                     northCardinalStyle = northCardinalStyle
                 )
             }
 
             // Fixed frosted lubber indicator at 12 o'clock
-            val lubberY = cy - radius * (if (dialStyle == DialStyle.EXPRESSIVE) 0.72f else 0.74f)
+            val lubberY = cy - radius * (if (dialStyle == DialStyle.EXPRESSIVE) 0.72f else 0.72f)
             val pointerSize = radius * 0.064f
             val pointerPath = Path().apply {
                 moveTo(cx, lubberY - pointerSize * 0.80f)
@@ -270,7 +267,7 @@ fun CompassDial(
             )
         }
 
-        // Crisp upright central readout
+        // Crisp upright central readout using Fredoka typography roles
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -279,32 +276,29 @@ fun CompassDial(
                 !headingState.isSupported -> {
                     Text(
                         text = "--°",
-                        style = MaterialTheme.typography.displaySmall.copy(
+                        style = textRoles.display.copy(
                             fontSize = if (largeReadouts) 58.sp else 52.sp,
-                            letterSpacing = (-1.5).sp,
-                            fontFamily = JetBrainsMonoFontFamily
+                            letterSpacing = (-1.2).sp
                         ),
                         color = mutedInk,
                         modifier = Modifier.testTag("compass_heading_value")
                     )
                     Text(
                         text = "UNSUPPORTED",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = textRoles.technical,
                         color = mutedInk
                     )
                 }
                 headingDegrees == null -> {
                     Text(
                         text = "•••",
-                        style = MaterialTheme.typography.displaySmall.copy(
-                            fontSize = 52.sp
-                        ),
+                        style = textRoles.display.copy(fontSize = 52.sp),
                         color = mutedInk,
                         modifier = Modifier.testTag("compass_heading_value")
                     )
                     Text(
                         text = if (headingState.status == DiagnosticStatus.INITIALIZING) "CALIBRATING" else "WAITING",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = textRoles.technical,
                         color = mutedInk
                     )
                 }
@@ -328,26 +322,32 @@ fun CompassDial(
                             "${headingDegrees.roundToInt() % 360}° ${GeoNavigationMath.cardinal16(headingDegrees)}"
                         }
                     }
+                    val referenceTag = when {
+                        headingState.isRelativeFallback -> "RELATIVE • NO NORTH"
+                        trueNorthActive -> "$secondaryText • TRUE"
+                        else -> "$secondaryText • MAG"
+                    }
                     Text(
                         text = primaryText,
-                        style = MaterialTheme.typography.displaySmall.copy(
+                        style = textRoles.display.copy(
                             fontSize = when {
                                 headingFormat == HeadingFormat.QUADRANT && largeReadouts -> 40.sp
                                 headingFormat == HeadingFormat.QUADRANT -> 36.sp
                                 largeReadouts -> 64.sp
                                 else -> 58.sp
                             },
-                            letterSpacing = (-1.5).sp,
-                            fontWeight = FontWeight.Bold
+                            letterSpacing = (-1.2).sp
                         ),
                         color = primaryInk,
                         modifier = Modifier.testTag("compass_heading_value")
                     )
                     Text(
-                        text = "$secondaryText • ${if (trueNorthActive) "TRUE" else "MAG"}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = activeAccent,
-                        fontWeight = FontWeight.SemiBold,
+                        text = referenceTag,
+                        style = textRoles.compassDirection.copy(
+                            fontSize = if (headingState.isRelativeFallback) 12.sp else 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (headingState.isRelativeFallback) mutedInk else activeAccent,
                         modifier = Modifier.testTag("compass_direction_label")
                     )
                 }
@@ -462,7 +462,7 @@ private fun DrawScope.drawExpressiveDial(
                 },
                 start = start,
                 end = end,
-                strokeWidth = if (isNorth) 3.2.dp.toPx() else if (isMajor) 2.2.dp.toPx() else 1.1.dp.toPx(),
+                strokeWidth = if (isNorth) 3.4.dp.toPx() else if (isMajor) 2.4.dp.toPx() else 1.2.dp.toPx(),
                 cap = StrokeCap.Round
             )
         }
@@ -550,20 +550,20 @@ private fun DrawScope.drawPrecisionDial(
         color = rimColor,
         radius = radius * 0.89f,
         center = center,
-        style = Stroke(width = 1.5.dp.toPx())
+        style = Stroke(width = 1.6.dp.toPx())
     )
     drawCircle(
         color = outlineColor.copy(alpha = 0.28f * alphaFactor),
-        radius = radius * 0.54f,
+        radius = radius * 0.535f,
         center = center,
         style = Stroke(width = 1.0.dp.toPx())
     )
 
     rotate(degrees = rotationDegrees, pivot = center) {
-        // Three distinct levels of degree markings across full 360°:
-        // 1. Minor ticks: individual 1° marks
-        // 2. Intermediate ticks: 5° and 10° subdivisions
-        // 3. Major ticks: every 30° (visibly thicker and longer)
+        // Distinct visual hierarchy with smooth StrokeCap.Round ticks:
+        // 1. Minor 1° ticks (delicate hairline)
+        // 2. Intermediate 5° and 10° subdivisions
+        // 3. Major 30° ticks (thick, rounded & prominently extended)
         for (deg in 0 until 360) {
             val isMajor30 = deg % 30 == 0
             val isTen = deg % 10 == 0
@@ -572,10 +572,10 @@ private fun DrawScope.drawPrecisionDial(
             val rad = Math.toRadians(deg - 90.0)
             val outerR = radius * 0.875f
             val innerR = radius * when {
-                isMajor30 -> 0.735f
-                isTen -> 0.790f
+                isMajor30 -> 0.720f
+                isTen -> 0.785f
                 isFive -> 0.815f
-                else -> 0.840f
+                else -> 0.842f
             }
 
             val start = Offset(
@@ -591,20 +591,20 @@ private fun DrawScope.drawPrecisionDial(
                 color = when {
                     isNorth -> northColor.copy(alpha = alphaFactor)
                     isMajor30 -> primaryInk.copy(alpha = 0.96f * alphaFactor)
-                    isTen -> primaryInk.copy(alpha = 0.74f * alphaFactor)
+                    isTen -> primaryInk.copy(alpha = 0.76f * alphaFactor)
                     isFive -> mutedInk.copy(alpha = 0.62f * alphaFactor)
                     else -> mutedInk.copy(alpha = 0.30f * alphaFactor)
                 },
                 start = start,
                 end = end,
                 strokeWidth = when {
-                    isNorth -> 3.3.dp.toPx()
-                    isMajor30 -> 2.6.dp.toPx()
-                    isTen -> 1.5.dp.toPx()
-                    isFive -> 1.1.dp.toPx()
-                    else -> 0.68.dp.toPx()
+                    isNorth -> 4.2.dp.toPx()
+                    isMajor30 -> 3.4.dp.toPx()
+                    isTen -> 2.0.dp.toPx()
+                    isFive -> 1.45.dp.toPx()
+                    else -> 0.95.dp.toPx()
                 },
-                cap = StrokeCap.Butt
+                cap = StrokeCap.Round
             )
 
             if (isMajor30) {
@@ -628,7 +628,7 @@ private fun DrawScope.drawPrecisionDial(
         val cardinals = listOf(0 to "N", 90 to "E", 180 to "S", 270 to "W")
         cardinals.forEach { (deg, label) ->
             val rad = Math.toRadians(deg - 90.0)
-            val r = radius * 0.635f
+            val r = radius * 0.62f
             val pos = Offset(
                 center.x + (r * cos(rad)).toFloat(),
                 center.y + (r * sin(rad)).toFloat()
@@ -649,16 +649,18 @@ private fun DrawScope.drawPrecisionDial(
 
         // Crisp inner reticle crosshair
         drawLine(
-            color = accent.copy(alpha = 0.20f * alphaFactor),
-            start = Offset(center.x - radius * 0.44f, center.y),
-            end = Offset(center.x + radius * 0.44f, center.y),
-            strokeWidth = 0.85.dp.toPx()
+            color = accent.copy(alpha = 0.22f * alphaFactor),
+            start = Offset(center.x - radius * 0.43f, center.y),
+            end = Offset(center.x + radius * 0.43f, center.y),
+            strokeWidth = 0.95.dp.toPx(),
+            cap = StrokeCap.Round
         )
         drawLine(
-            color = accent.copy(alpha = 0.20f * alphaFactor),
-            start = Offset(center.x, center.y - radius * 0.44f),
-            end = Offset(center.x, center.y + radius * 0.44f),
-            strokeWidth = 0.85.dp.toPx()
+            color = accent.copy(alpha = 0.22f * alphaFactor),
+            start = Offset(center.x, center.y - radius * 0.43f),
+            end = Offset(center.x, center.y + radius * 0.43f),
+            strokeWidth = 0.95.dp.toPx(),
+            cap = StrokeCap.Round
         )
     }
 }

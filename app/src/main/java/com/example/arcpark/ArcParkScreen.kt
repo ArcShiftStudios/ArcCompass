@@ -66,9 +66,8 @@ import com.example.ui.theme.GlassDialog
 import com.example.ui.theme.GlassPill
 import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.StatusAvailableGreen
-import com.example.ui.theme.StatusWarningAmber
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -144,7 +143,8 @@ fun ArcParkScreen(
                     Column {
                         Text(
                             text = "ArcPark",
-                            style = MaterialTheme.typography.headlineSmall
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
                             text = "Offline parking saver & retrieval",
@@ -152,10 +152,14 @@ fun ArcParkScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    GlassPill(tintColor = MaterialTheme.colorScheme.surfaceVariant) {
+                    GlassPill(
+                        tintColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ) {
                         Text(
                             text = "${spots.size} saved",
                             style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
@@ -292,12 +296,13 @@ private fun LocationReadinessBanner(
     onRequestPermission: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val semanticColors = MaterialTheme.arcSemanticColors
     val acc = locationState.horizontalAccuracyMeters
     val isPoorAccuracy = acc != null && acc > 25f
 
     GlassCard(
         tier = GlassTier.CARD,
-        borderColor = if (isPoorAccuracy) StatusWarningAmber.copy(alpha = 0.5f) else null,
+        borderColor = if (isPoorAccuracy) semanticColors.warning.copy(alpha = 0.5f) else null,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -311,7 +316,7 @@ private fun LocationReadinessBanner(
                 Icon(
                     imageVector = Icons.Outlined.LocationOn,
                     contentDescription = null,
-                    tint = if (locationState.latitude != null) MaterialTheme.colorScheme.primary else StatusWarningAmber,
+                    tint = if (locationState.latitude != null) MaterialTheme.colorScheme.primary else semanticColors.warning,
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
@@ -328,15 +333,16 @@ private fun LocationReadinessBanner(
                             )
                         else -> "Acquiring GPS location fix…"
                     },
-                    style = MaterialTheme.typography.titleSmall
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
-            if (isPoorAccuracy) {
+            if (acc != null && acc > 25f) {
                 Text(
-                    text = "Poor GPS precision (±${acc!!.toInt()} m). Move outdoors or add floor/notes before saving.",
+                    text = "Poor GPS precision (±${acc.toInt()} m). Move outdoors or add floor/notes before saving.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = StatusWarningAmber
+                    color = semanticColors.warning
                 )
             }
 
@@ -387,7 +393,8 @@ private fun EmptyParkingCard(
             )
             Text(
                 text = "No Saved Parking Spots",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "Save your vehicle's GPS coordinates, floor level, and notes locally. Retrieve it anytime offline.",
@@ -445,6 +452,7 @@ private fun SavedParkingSpotCard(
                     Text(
                         text = spot.name,
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -477,7 +485,7 @@ private fun SavedParkingSpotCard(
 
             Text(
                 text = GeoNavigationMath.formatDmsCoordinates(spot.latitude, spot.longitude),
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                style = MaterialTheme.arcTextRoles.technical,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -529,7 +537,8 @@ private fun SavedParkingSpotCard(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Edit,
-                            contentDescription = "Edit parking spot"
+                            contentDescription = "Edit parking spot",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(
@@ -540,7 +549,8 @@ private fun SavedParkingSpotCard(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.DeleteOutline,
-                            contentDescription = "Delete parking spot"
+                            contentDescription = "Delete parking spot",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -561,6 +571,7 @@ private fun SaveOrEditParkingDialog(
     var floor by remember(existingSpot) { mutableStateOf(existingSpot?.floorOrLevel ?: "") }
     var notes by remember(existingSpot) { mutableStateOf(existingSpot?.notes ?: "") }
 
+    val semanticColors = MaterialTheme.arcSemanticColors
     val isEditing = existingSpot != null
     val hasGpsFix = locationState.latitude != null && locationState.longitude != null
     val accuracy = locationState.horizontalAccuracyMeters
@@ -569,7 +580,8 @@ private fun SaveOrEditParkingDialog(
     GlassDialog(onDismissRequest = onDismiss) {
         Text(
             text = if (isEditing) "Edit Parking Spot" else "Save Parking Spot",
-            style = MaterialTheme.typography.headlineSmall
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(Modifier.height(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -577,9 +589,9 @@ private fun SaveOrEditParkingDialog(
                 GlassCard(
                     tier = GlassTier.CARD,
                     tintColor = if (!hasGpsFix || isPoorAccuracy) {
-                        StatusWarningAmber.copy(alpha = 0.14f)
+                        semanticColors.warning.copy(alpha = 0.14f)
                     } else {
-                        StatusAvailableGreen.copy(alpha = 0.14f)
+                        semanticColors.success.copy(alpha = 0.14f)
                     }
                 ) {
                     Row(
@@ -594,7 +606,7 @@ private fun SaveOrEditParkingDialog(
                                 Icons.Outlined.LocationOn
                             },
                             contentDescription = null,
-                            tint = if (!hasGpsFix || isPoorAccuracy) StatusWarningAmber else StatusAvailableGreen,
+                            tint = if (!hasGpsFix || isPoorAccuracy) semanticColors.warning else semanticColors.success,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
@@ -603,12 +615,13 @@ private fun SaveOrEditParkingDialog(
                                     "Location permission required before saving."
                                 !hasGpsFix ->
                                     "Waiting for a valid GPS location fix…"
-                                isPoorAccuracy ->
+                                accuracy == null || accuracy > 25f ->
                                     "Low accuracy (±${accuracy?.toInt() ?: "?"} m). Consider waiting or adding floor notes."
                                 else ->
-                                    String.format(Locale.US, "GPS accuracy: ±%.0f m", accuracy!!)
+                                    String.format(Locale.US, "GPS accuracy: ±%.0f m", accuracy)
                             },
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }

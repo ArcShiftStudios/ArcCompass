@@ -1,11 +1,17 @@
 package com.example.ui
 
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.TriggerEventListener
+import android.location.LocationManager
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -14,6 +20,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToKey
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.ArcCompassAppRoot
@@ -30,29 +41,51 @@ import com.example.data.ParkingSpotEntity
 import com.example.data.SavedPlaceEntity
 import com.example.level.LevelScreen
 import com.example.sensor.AltitudeSource
+import com.example.sensor.AxisReading
 import com.example.sensor.CapabilityReport
+import com.example.sensor.CompassAnomalyReason
+import com.example.sensor.CompassDiagnosticsState
 import com.example.sensor.CompassHeadingState
 import com.example.sensor.CompassSource
 import com.example.sensor.DeviceHardwareInfo
 import com.example.sensor.DiagnosticStatus
 import com.example.sensor.FeatureCapability
+import com.example.sensor.InteractiveCheckPhase
 import com.example.sensor.LevelSource
 import com.example.sensor.LevelTiltState
 import com.example.sensor.LiveTelemetrySnapshot
 import com.example.sensor.LocationDiagnosticSnapshot
 import com.example.sensor.LocationPermissionState
+import com.example.sensor.RequiredSensorType
 import com.example.sensor.SensorAccuracyLevel
 import com.example.sensor.SensorEngineState
+import com.example.sensor.SensorManagerProvider
+import com.example.sensor.SensorReportingMode
+import com.example.sensor.SensorRepository
+import com.example.sensor.SensorSpec
 import com.example.ui.theme.ArcCompassTheme
+import com.example.ui.theme.FredokaExpanded
+import com.example.ui.theme.FredokaNormal
+import com.example.ui.theme.FredokaSemiCondensed
+import com.example.ui.theme.FredokaSemiExpanded
+import com.example.ui.theme.RawTelemetryMonoFontFamily
+import com.example.ui.theme.arcTextRoles
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
+import org.robolectric.shadows.ShadowSensor
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -61,6 +94,39 @@ class ArcCompassUiScenariosRobolectricTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    private fun sampleSpecs(magAvailable: Boolean): List<SensorSpec> = listOf(
+        SensorSpec(
+            sensorType = RequiredSensorType.ACCELEROMETER,
+            isAvailable = true,
+            name = "BMI160 Accel",
+            vendor = "Bosch",
+            version = 1,
+            powerMa = 0.25f,
+            resolution = 0.002f,
+            maxRange = 78.4f,
+            minDelayUs = 5000,
+            reportingMode = SensorReportingMode.CONTINUOUS,
+            isWakeUpSensor = false,
+            accuracy = SensorAccuracyLevel.HIGH,
+            status = DiagnosticStatus.AVAILABLE
+        ),
+        SensorSpec(
+            sensorType = RequiredSensorType.MAGNETIC_FIELD,
+            isAvailable = magAvailable,
+            name = if (magAvailable) "AK09918 Mag" else "Missing",
+            vendor = if (magAvailable) "AKM" else "None",
+            version = 1,
+            powerMa = 1.1f,
+            resolution = 0.15f,
+            maxRange = 4900f,
+            minDelayUs = 10000,
+            reportingMode = SensorReportingMode.CONTINUOUS,
+            isWakeUpSensor = false,
+            accuracy = if (magAvailable) SensorAccuracyLevel.HIGH else SensorAccuracyLevel.NOT_APPLICABLE,
+            status = if (magAvailable) DiagnosticStatus.AVAILABLE else DiagnosticStatus.UNAVAILABLE
+        )
+    )
+
     private fun sampleEngineState(
         hasCompass: Boolean = true,
         hasMagnetometer: Boolean = true,
@@ -68,7 +134,7 @@ class ArcCompassUiScenariosRobolectricTest {
     ): SensorEngineState {
         return SensorEngineState(
             deviceInfo = DeviceHardwareInfo("Vivo", "Y21", "vivo", "y21", "13", 33, 6),
-            sensorSpecs = emptyList(),
+            sensorSpecs = sampleSpecs(magAvailable = hasMagnetometer),
             capabilities = CapabilityReport(
                 compass = FeatureCapability(
                     status = if (hasCompass) DiagnosticStatus.AVAILABLE else DiagnosticStatus.UNAVAILABLE,
@@ -107,7 +173,11 @@ class ArcCompassUiScenariosRobolectricTest {
                     detail = "Test"
                 )
             ),
-            telemetry = LiveTelemetrySnapshot(magneticFieldMicroTesla = if (hasMagnetometer) 48.2f else null),
+            telemetry = LiveTelemetrySnapshot(
+                magneticFieldMicroTesla = if (hasMagnetometer) 48.2f else null,
+                accelerometerAxes = AxisReading(0.12f, -0.05f, 9.81f),
+                sensorUpdateTimestamps = mapOf(RequiredSensorType.ACCELEROMETER to 1_700_000_000_000L)
+            ),
             locationState = LocationDiagnosticSnapshot(
                 permissionState = LocationPermissionState.GRANTED_FINE,
                 isLocationServiceEnabled = true,
@@ -166,20 +236,22 @@ class ArcCompassUiScenariosRobolectricTest {
         }
 
         composeRule.onNodeWithTag("compass_dial_canvas").assertIsDisplayed()
-        // Milestone 4: Extra top-right circular settings control must not exist on CompassScreen
         composeRule.onNodeWithTag("compass_settings_button").assertDoesNotExist()
-        composeRule.onNodeWithTag("unsupported_compass_banner").performScrollTo().assertIsDisplayed()
 
-        // Expressive shape chips appear on Expressive dial and update selection
-        composeRule.onNodeWithTag("expressive_shape_chip_rounded_flower").performClick()
+        // Expressive shape chips appear in the top DialCustomizationGlassBar; select before scrolling down
+        composeRule.onNodeWithTag("expressive_shape_chip_rounded_flower").performScrollTo().performClick()
+        composeRule.waitForIdle()
         assertEquals(ExpressiveDialShape.ROUNDED_FLOWER, settings.expressiveDialShape)
 
         // Switching to Precision dial hides Expressive shape chips so Precision remains unmodified
-        composeRule.onNodeWithTag("dial_style_toggle").performClick()
+        composeRule.onNodeWithTag("dial_style_toggle").performScrollTo().performClick()
+        composeRule.waitForIdle()
         assertEquals(DialStyle.PRECISION, settings.dialStyle)
         assertTrue(composeRule.onAllNodesWithTag("expressive_shape_chip_rounded_flower").fetchSemanticsNodes().isEmpty())
 
-        // Expand frosted bottom sheet: Collapsed -> Half (already populated with telemetry + Saved Places) -> Full
+        composeRule.onNodeWithTag("unsupported_compass_banner").performScrollTo().assertIsDisplayed()
+
+        // Expand frosted bottom sheet: Collapsed -> Half -> Full
         composeRule.onNodeWithTag("info_panel_toggle").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Half").assertIsDisplayed()
@@ -192,7 +264,7 @@ class ArcCompassUiScenariosRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Full").assertIsDisplayed()
 
-        // Save Place frosted dialog works inside expanded sheet (no duplicate Settings button in Dock)
+        // Save Place frosted dialog works inside expanded sheet
         composeRule.onNodeWithTag("save_place_button").performScrollTo().performClick()
         composeRule.onNodeWithText("Pin Current Location").assertIsDisplayed()
         composeRule.onNodeWithText("Save Place").performClick()
@@ -201,7 +273,66 @@ class ArcCompassUiScenariosRobolectricTest {
     }
 
     @Test
-    fun `level screen supports tap-to-zero custom reference and fallback card when unsupported`() {
+    fun `raw mode displays only available hardware sensors and diagnostic banner requests user confirmation`() {
+        var settings by mutableStateOf(ArcCompassSettings(rawModeEnabled = true))
+        var diagnosticsState by mutableStateOf(
+            CompassDiagnosticsState(
+                suspectedAnomaly = CompassAnomalyReason.FROZEN_DURING_MOTION
+            )
+        )
+
+        composeRule.setContent {
+            ArcCompassTheme(settings = settings) {
+                CompassScreen(
+                    engineState = sampleEngineState(hasCompass = true, hasMagnetometer = false),
+                    headingState = CompassHeadingState(
+                        isSupported = true,
+                        source = CompassSource.ROTATION_VECTOR,
+                        status = DiagnosticStatus.AVAILABLE,
+                        accuracy = SensorAccuracyLevel.HIGH,
+                        magneticAzimuthDegrees = 128f
+                    ),
+                    settings = settings,
+                    compassDiagnosticsState = diagnosticsState,
+                    onToggleTrueNorth = {},
+                    onToggleDialStyle = {},
+                    onToggleRawMode = { settings = settings.copy(rawModeEnabled = it) },
+                    onRequestDiagnosticCheck = {
+                        diagnosticsState = diagnosticsState.copy(checkPhase = InteractiveCheckPhase.AWAITING_CONFIRMATION)
+                    },
+                    onStartDiagnosticCheck = {
+                        diagnosticsState = diagnosticsState.copy(checkPhase = InteractiveCheckPhase.RUNNING)
+                    },
+                    onCancelDiagnosticCheck = {
+                        diagnosticsState = diagnosticsState.copy(checkPhase = InteractiveCheckPhase.IDLE)
+                    },
+                    onDismissAnomalyBanner = {
+                        diagnosticsState = diagnosticsState.copy(bannerDismissed = true)
+                    },
+                    onLocationPermissionResult = {}
+                )
+            }
+        }
+
+        // RAW mode displays available Accelerometer card and omits unavailable Magnetometer card
+        composeRule.onNodeWithTag("compass_raw_mode_deck").assertIsDisplayed()
+        composeRule.onNodeWithTag("raw_sensor_card_accelerometer").assertIsDisplayed()
+        composeRule.onNodeWithTag("raw_sensor_card_magnetic_field").assertDoesNotExist()
+
+        // Pause / Resume toggle updates label cleanly
+        composeRule.onNodeWithTag("raw_mode_pause_button").performClick()
+        composeRule.onNodeWithText("Resume").assertIsDisplayed()
+
+        // Anomaly banner appears near top and triggers confirmation modal prior to running diagnostic check
+        composeRule.onNodeWithTag("compass_anomaly_banner").assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_anomaly_run_check_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("compass_interactive_check_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_check_confirm_start").assertIsDisplayed()
+    }
+
+    @Test
+    fun `level screen supports tap-to-zero custom reference and display-only sliders stay non-interactive`() {
         var supported by mutableStateOf(true)
         var hasCustomReference by mutableStateOf(false)
         composeRule.setContent {
@@ -235,19 +366,27 @@ class ArcCompassUiScenariosRobolectricTest {
 
         composeRule.onNodeWithTag("level_sensor_status").assertIsDisplayed()
         composeRule.onNodeWithTag("level_bullseye_canvas").assertIsDisplayed()
-        composeRule.onNodeWithTag("level_set_reference_button").performClick()
+        composeRule.onNodeWithTag("level_roll_slider").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("level_plumb_slider").performScrollTo().assertIsDisplayed()
+
+        // Attempted swipe across display-only slider does not alter sensor state (appears in slider & summary metric)
+        composeRule.onNodeWithTag("level_roll_slider").performTouchInput { swipeRight() }
+        composeRule.waitForIdle()
+        assertTrue(composeRule.onAllNodesWithText("+4.5°").fetchSemanticsNodes().isNotEmpty())
+
+        composeRule.onNodeWithTag("level_set_reference_button").performScrollTo().performClick()
         composeRule.waitForIdle()
         assertTrue(hasCustomReference)
-        composeRule.onNodeWithTag("level_reset_true_zero_button").assertIsDisplayed()
-        composeRule.onNodeWithTag("level_flat_badge").assertIsDisplayed()
+        composeRule.onNodeWithTag("level_reset_true_zero_button").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("level_flat_badge").performScrollTo().assertIsDisplayed()
 
-        composeRule.onNodeWithTag("level_reset_true_zero_button").performClick()
+        composeRule.onNodeWithTag("level_reset_true_zero_button").performScrollTo().performClick()
         composeRule.waitForIdle()
         assertTrue(!hasCustomReference)
 
         supported = false
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("unsupported_level_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("unsupported_level_card").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -280,18 +419,22 @@ class ArcCompassUiScenariosRobolectricTest {
 
     @Test
     @Config(qualifiers = "w412dp-h915dp-port")
-    fun `morphing floating nav navigates all tabs at phone dimensions and expands settings sections`() {
+    fun `floating rounded-square nav navigates all tabs via tap and drag and expands settings sections`() {
         composeRule.setContent {
             ArcCompassAppRoot()
         }
 
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("morphing_floating_nav").assertIsDisplayed()
+        composeRule.onNodeWithTag("floating_nav_active_indicator").assertIsDisplayed()
         composeRule.onNodeWithTag("compass_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("compass_dial_canvas").assertIsDisplayed()
         composeRule.onNodeWithTag("compass_settings_button").assertDoesNotExist()
         composeRule.onNodeWithTag("info_panel_toggle").assertIsDisplayed()
 
+        // Horizontal drag across bottom bar moves off Compass
+        composeRule.onNodeWithTag("morphing_floating_nav").performTouchInput { swipeRight() }
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("nav_level").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("level_screen").assertIsDisplayed()
@@ -305,13 +448,21 @@ class ArcCompassUiScenariosRobolectricTest {
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("settings_sensor_diagnostics_item").assertIsDisplayed()
 
-        // Expand collapsible Instruments & Units section in redesigned Settings
-        composeRule.onNodeWithTag("settings_section_instruments").performScrollTo().performClick()
+        // Swipe left on dock moves away from Settings
+        composeRule.onNodeWithTag("morphing_floating_nav").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("nav_settings").performClick()
+        composeRule.waitForIdle()
+
+        // Scroll to LazyColumn item keys before clicking
+        composeRule.onNodeWithTag("settings_list").performScrollToKey("section_instruments")
+        composeRule.onNodeWithTag("settings_section_instruments").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Imperial units").performScrollTo().assertIsDisplayed()
 
         // Open Sensor Diagnostics from first settings item and return cleanly
-        composeRule.onNodeWithTag("settings_sensor_diagnostics_item").performScrollTo().performClick()
+        composeRule.onNodeWithTag("settings_list").performScrollToKey("section_hardware")
+        composeRule.onNodeWithTag("settings_sensor_diagnostics_item").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("diagnostics_back_button").assertIsDisplayed()
 
@@ -320,7 +471,6 @@ class ArcCompassUiScenariosRobolectricTest {
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
     }
 
-    // Scenario 7 & 9: Poor GPS accuracy warning + ArcPark Find Mode with unreliable vs reliable orientation
     @Test
     fun `scenario 7 and 9 arcpark find mode disables phone arrow on unreliable orientation and warns on poor GPS`() {
         val spot = ParkingSpotEntity(
@@ -363,28 +513,31 @@ class ArcCompassUiScenariosRobolectricTest {
             }
         }
 
-        // Unreliable orientation: banner shown, arrow hidden, separate GPS travel direction shown, poor GPS warning shown
         composeRule.onNodeWithTag("arcpark_unreliable_orientation_banner").assertIsDisplayed()
         composeRule.onNodeWithTag("arcpark_directional_arrow").assertDoesNotExist()
         composeRule.onNodeWithText("GPS travel direction: NE (42°)").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("arcpark_find_accuracy").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Location accuracy: ±48 m (Low precision — GPS only)").assertIsDisplayed()
 
-        // Reliable orientation: phone-relative directional arrow appears
         reliableOrientation = true
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("arcpark_directional_arrow").assertIsDisplayed()
         composeRule.onNodeWithTag("arcpark_unreliable_orientation_banner").assertDoesNotExist()
     }
 
-    // Scenario 10: Light/Dark/Night/HighContrast themes + Room persistence CRUD
     @Test
-    fun `scenario 10 light dark night high contrast themes apply cleanly and Room parking CRUD persists`() = runBlocking {
+    fun `scenario 10 fredoka typography roles and light dark night high contrast themes apply cleanly with Room CRUD`() = runBlocking {
         var themeMode by mutableStateOf(AppThemeMode.DARK)
         var nightFilter by mutableStateOf(false)
         var highContrast by mutableStateOf(false)
         var measuredBgLuminance = 0f
+        var measuredInkLuminance = 0f
         var measuredPrimaryRed = 0f
+        var displayFamilyMatches = false
+        var headingFamilyMatches = false
+        var settingsFamilyMatches = false
+        var technicalFamilyMatches = false
+        var regularRolesAvoidMono = false
 
         composeRule.setContent {
             ArcCompassTheme(
@@ -396,17 +549,36 @@ class ArcCompassUiScenariosRobolectricTest {
                     expressiveAccentPreset = AccentPreset.EMERALD
                 )
             ) {
+                val roles = MaterialTheme.arcTextRoles
                 measuredBgLuminance = MaterialTheme.colorScheme.background.luminance()
+                measuredInkLuminance = MaterialTheme.colorScheme.onSurface.luminance()
                 measuredPrimaryRed = MaterialTheme.colorScheme.primary.red
+                displayFamilyMatches = roles.display.fontFamily == FredokaExpanded
+                headingFamilyMatches = roles.heading.fontFamily == FredokaSemiExpanded
+                settingsFamilyMatches = roles.settings.fontFamily == FredokaNormal
+                technicalFamilyMatches = roles.technical.fontFamily == FredokaSemiCondensed
+                regularRolesAvoidMono = listOf(
+                    roles.display, roles.heading, roles.measurement,
+                    roles.compassDirection, roles.navigation, roles.settings,
+                    roles.technical, roles.description, roles.button
+                ).none { it.fontFamily == RawTelemetryMonoFontFamily }
             }
         }
 
         composeRule.waitForIdle()
+        assertTrue(displayFamilyMatches)
+        assertTrue(headingFamilyMatches)
+        assertTrue(settingsFamilyMatches)
+        assertTrue(technicalFamilyMatches)
+        assertTrue(regularRolesAvoidMono)
         assertTrue(measuredBgLuminance < 0.1f)
+        assertTrue("Dark theme text ink must be bright", measuredInkLuminance > 0.7f)
 
         themeMode = AppThemeMode.LIGHT
         composeRule.waitForIdle()
         assertTrue(measuredBgLuminance > 0.7f)
+        assertTrue("Light theme text ink must be dark", measuredInkLuminance < 0.15f)
+        assertNotEquals(0f, measuredBgLuminance)
 
         highContrast = true
         composeRule.waitForIdle()
@@ -418,7 +590,6 @@ class ArcCompassUiScenariosRobolectricTest {
         assertTrue(measuredBgLuminance < 0.05f)
         assertTrue(measuredPrimaryRed > 0.8f)
 
-        // Room local CRUD verification
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, ArcCompassDatabase::class.java)
             .allowMainThreadQueries()
@@ -449,5 +620,203 @@ class ArcCompassUiScenariosRobolectricTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-port")
+    fun `sensor check results dialog dismisses on Done, restarts cleanly on Retest, and restores default on Use Default`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val sensors = mapOf(
+            Sensor.TYPE_ACCELEROMETER to ShadowSensor.newInstance(Sensor.TYPE_ACCELEROMETER),
+            Sensor.TYPE_MAGNETIC_FIELD to ShadowSensor.newInstance(Sensor.TYPE_MAGNETIC_FIELD),
+            Sensor.TYPE_GYROSCOPE to ShadowSensor.newInstance(Sensor.TYPE_GYROSCOPE),
+            Sensor.TYPE_ROTATION_VECTOR to ShadowSensor.newInstance(Sensor.TYPE_ROTATION_VECTOR),
+            Sensor.TYPE_GAME_ROTATION_VECTOR to ShadowSensor.newInstance(Sensor.TYPE_GAME_ROTATION_VECTOR)
+        )
+        val fakeProvider = object : SensorManagerProvider {
+            val activeRegistrations = mutableListOf<Pair<SensorEventListener, Int>>()
+
+            override fun getDefaultSensor(type: Int): Sensor? = sensors[type]
+            override fun getAllSensors(): List<Sensor> = sensors.values.toList()
+            override fun registerListener(
+                listener: SensorEventListener,
+                sensor: Sensor,
+                samplingPeriodUs: Int
+            ): Boolean {
+                activeRegistrations.add(listener to sensor.type)
+                return true
+            }
+            override fun unregisterListener(listener: SensorEventListener) {
+                activeRegistrations.removeAll { it.first === listener }
+            }
+            override fun requestTriggerSensor(listener: TriggerEventListener, sensor: Sensor): Boolean = false
+            override fun cancelTriggerSensor(listener: TriggerEventListener, sensor: Sensor): Boolean = false
+            override fun getLocationManager(): LocationManager? = null
+            override fun isLocationEnabled(): Boolean = false
+            override fun getDeviceInfo(totalDetectedSensors: Int): DeviceHardwareInfo =
+                DeviceHardwareInfo("ArcTest", "Precision", "Test", "arc", "15", 35, totalDetectedSensors)
+
+            fun emit(type: Int, vararg values: Float) {
+                val sensor = sensors[type] ?: return
+                val event = createSensorEvent(sensor, values)
+                activeRegistrations
+                    .filter { it.second == type }
+                    .map { it.first }
+                    .distinct()
+                    .forEach { it.onSensorChanged(event) }
+            }
+        }
+
+        val repository = SensorRepository(context, provider = fakeProvider)
+        repository.startObserving()
+        var settings by mutableStateOf(ArcCompassSettings(reducedMotionEnabled = true, frostedBlurEnabled = false))
+
+        composeRule.setContent {
+            val engineState by repository.engineState.collectAsStateWithLifecycle()
+            val headingState by repository.headingState.collectAsStateWithLifecycle()
+            val diagnosticsState by repository.compassDiagnosticsState.collectAsStateWithLifecycle()
+
+            ArcCompassTheme(settings = settings) {
+                CompassScreen(
+                    engineState = engineState,
+                    headingState = headingState,
+                    settings = settings,
+                    compassDiagnosticsState = diagnosticsState,
+                    onToggleTrueNorth = { settings = settings.copy(trueNorthEnabled = it) },
+                    onToggleDialStyle = { settings = settings.copy(dialStyle = it) },
+                    onLocationPermissionResult = {},
+                    onRequestDiagnosticCheck = repository::requestCompassDiagnosticCheck,
+                    onStartDiagnosticCheck = repository::startCompassDiagnosticCheck,
+                    onCancelDiagnosticCheck = repository::cancelCompassDiagnosticConfirmation,
+                    onDismissAnomalyBanner = repository::dismissCompassAnomalyBanner,
+                    onResetCompassRecovery = repository::resetCompassRecovery
+                )
+            }
+        }
+
+        // Initial default compass heading is active on ROTATION_VECTOR
+        fakeProvider.emit(Sensor.TYPE_ROTATION_VECTOR, 0f, 0f, 0.2f, 0.98f)
+        composeRule.waitForIdle()
+        assertEquals(CompassSource.ROTATION_VECTOR, repository.headingState.value.source)
+        assertNotNull(repository.headingState.value.magneticAzimuthDegrees)
+
+        // 1. Trigger diagnostics via bottom sheet "Sensor Check" (Collapsed -> Half -> Full)
+        composeRule.onNodeWithTag("info_panel_toggle").performClick()
+        composeRule.onNodeWithTag("info_panel_toggle").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("sheet_sensor_check_button").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("compass_interactive_check_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_check_confirm_start").performClick()
+        composeRule.waitForIdle()
+
+        // 2. Run guided 4-second check with frozen RV + active Accel & Mag -> switches to Accel+Mag fallback
+        repeat(6) { idx ->
+            ShadowLooper.idleMainLooper(750L, TimeUnit.MILLISECONDS)
+            fakeProvider.emit(Sensor.TYPE_ROTATION_VECTOR, 0f, 0f, 0.2f, 0.98f)
+            fakeProvider.emit(Sensor.TYPE_ACCELEROMETER, idx * 0.8f, -idx * 0.4f, 9.7f)
+            fakeProvider.emit(Sensor.TYPE_MAGNETIC_FIELD, 18f + idx * 3f, -12f, 40f)
+            fakeProvider.emit(Sensor.TYPE_GYROSCOPE, 0.35f, 0.12f, 0.25f)
+        }
+        ShadowLooper.idleMainLooper(600L, TimeUnit.MILLISECONDS)
+        composeRule.waitForIdle()
+
+        // 3. Results dialog displays fallback & Done / Retest / Use Default buttons
+        assertEquals(InteractiveCheckPhase.COMPLETED, repository.compassDiagnosticsState.value.checkPhase)
+        assertEquals(CompassSource.ACCELEROMETER_AND_MAGNETOMETER, repository.headingState.value.source)
+        composeRule.onNodeWithText("Sensor Check Results").assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_check_use_default").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_check_retest").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("compass_check_done").performScrollTo().assertIsDisplayed()
+
+        // 4. Tap Done -> dismisses dialog immediately, preserves fallback, and does not block screen interaction
+        composeRule.onNodeWithTag("compass_check_done").performClick()
+        composeRule.waitForIdle()
+        assertEquals(InteractiveCheckPhase.IDLE, repository.compassDiagnosticsState.value.checkPhase)
+        composeRule.onAllNodesWithTag("compass_interactive_check_dialog").assertCountEquals(0)
+        assertEquals(CompassSource.ACCELEROMETER_AND_MAGNETOMETER, repository.headingState.value.source)
+
+        // Confirm fallback compass updates heading after dialog dismissal and underlying UI is clickable
+        fakeProvider.emit(Sensor.TYPE_ACCELEROMETER, 0f, 0f, 9.81f)
+        fakeProvider.emit(Sensor.TYPE_MAGNETIC_FIELD, 20f, -10f, 40f)
+        composeRule.waitForIdle()
+        assertNotNull(repository.headingState.value.magneticAzimuthDegrees)
+        composeRule.onNodeWithTag("info_panel_toggle").performClick() // Full -> Collapsed
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("dial_style_toggle").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        assertEquals(DialStyle.PRECISION, settings.dialStyle)
+
+        // 5. Open diagnostics again -> run check -> test Retest (no duplicate dialogs or listeners)
+        composeRule.onNodeWithTag("info_panel_toggle").performClick() // Collapsed -> Half
+        composeRule.onNodeWithTag("info_panel_toggle").performClick() // Half -> Full
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("sheet_sensor_check_button").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("compass_check_confirm_start").performClick()
+        composeRule.waitForIdle()
+        repeat(6) { idx ->
+            ShadowLooper.idleMainLooper(750L, TimeUnit.MILLISECONDS)
+            fakeProvider.emit(Sensor.TYPE_ROTATION_VECTOR, 0f, 0f, 0.2f, 0.98f)
+            fakeProvider.emit(Sensor.TYPE_ACCELEROMETER, idx * 0.9f, -idx * 0.4f, 9.6f)
+            fakeProvider.emit(Sensor.TYPE_MAGNETIC_FIELD, 16f + idx * 3f, -11f, 39f)
+            fakeProvider.emit(Sensor.TYPE_GYROSCOPE, 0.4f, 0.1f, 0.2f)
+        }
+        ShadowLooper.idleMainLooper(600L, TimeUnit.MILLISECONDS)
+        composeRule.waitForIdle()
+        assertEquals(InteractiveCheckPhase.COMPLETED, repository.compassDiagnosticsState.value.checkPhase)
+
+        // Tap Retest -> returns to RUNNING inside a single dialog without duplicating listeners
+        composeRule.onNodeWithTag("compass_check_retest").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        assertEquals(InteractiveCheckPhase.RUNNING, repository.compassDiagnosticsState.value.checkPhase)
+        composeRule.onAllNodesWithTag("compass_interactive_check_dialog").assertCountEquals(1)
+        assertEquals(
+            "No duplicate (listener, sensorType) registrations allowed",
+            fakeProvider.activeRegistrations.distinct().size,
+            fakeProvider.activeRegistrations.size
+        )
+
+        repeat(6) { idx ->
+            ShadowLooper.idleMainLooper(750L, TimeUnit.MILLISECONDS)
+            fakeProvider.emit(Sensor.TYPE_ROTATION_VECTOR, 0f, 0f, 0.2f, 0.98f)
+            fakeProvider.emit(Sensor.TYPE_ACCELEROMETER, idx * 0.9f, -idx * 0.4f, 9.6f)
+            fakeProvider.emit(Sensor.TYPE_MAGNETIC_FIELD, 16f + idx * 3f, -11f, 39f)
+            fakeProvider.emit(Sensor.TYPE_GYROSCOPE, 0.4f, 0.1f, 0.2f)
+        }
+        ShadowLooper.idleMainLooper(600L, TimeUnit.MILLISECONDS)
+        composeRule.waitForIdle()
+        assertEquals(InteractiveCheckPhase.COMPLETED, repository.compassDiagnosticsState.value.checkPhase)
+        composeRule.onAllNodesWithTag("compass_interactive_check_dialog").assertCountEquals(1)
+
+        // 6. Tap Use Default -> dismisses dialog and restores default ROTATION_VECTOR sensor configuration
+        composeRule.onNodeWithTag("compass_check_use_default").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        assertEquals(InteractiveCheckPhase.IDLE, repository.compassDiagnosticsState.value.checkPhase)
+        assertNull(repository.compassDiagnosticsState.value.activeRecoverySource)
+        composeRule.onAllNodesWithTag("compass_interactive_check_dialog").assertCountEquals(0)
+        assertEquals(CompassSource.ROTATION_VECTOR, repository.headingState.value.source)
+        assertEquals(
+            fakeProvider.activeRegistrations.distinct().size,
+            fakeProvider.activeRegistrations.size
+        )
+
+        // 7. Confirm compass still processes headings cleanly after restoring default
+        fakeProvider.emit(Sensor.TYPE_ROTATION_VECTOR, 0f, 0f, 0.5f, 0.866f)
+        composeRule.waitForIdle()
+        assertNotNull(repository.headingState.value.magneticAzimuthDegrees)
+        repository.stopObserving()
+    }
+
+    private fun createSensorEvent(sensor: Sensor, values: FloatArray): SensorEvent {
+        val ctor = SensorEvent::class.java.getDeclaredConstructor(Int::class.javaPrimitiveType)
+        ctor.isAccessible = true
+        val event = ctor.newInstance(values.size)
+        val sensorField = SensorEvent::class.java.getField("sensor")
+        sensorField.isAccessible = true
+        sensorField.set(event, sensor)
+        System.arraycopy(values, 0, event.values, 0, values.size)
+        event.timestamp = System.nanoTime()
+        return event
     }
 }

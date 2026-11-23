@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -70,10 +71,8 @@ import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassPill
 import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.SpaceGroteskFontFamily
-import com.example.ui.theme.StatusAvailableGreen
-import com.example.ui.theme.StatusWarningAmber
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import java.util.Locale
 import kotlin.math.abs
 
@@ -89,12 +88,17 @@ fun ArcParkFindModeScreen(
     BackHandler(onBack = onClose)
 
     val haptic = LocalHapticFeedback.current
+    val colorScheme = MaterialTheme.colorScheme
+    val semanticColors = MaterialTheme.arcSemanticColors
+    val textRoles = MaterialTheme.arcTextRoles
+    val isDark = colorScheme.background.luminance() < 0.5f
 
-    // Minimal dark surface inspired by Apple Find My, adapting cleanly to Red Night Filter
-    val findBg = if (settings.redScreenFilterEnabled) Color.Black else Color(0xFF0A0D12)
-    val findFg = if (settings.redScreenFilterEnabled) MaterialTheme.colorScheme.primary else Color(0xFFF8FAFC)
-    val findMuted = if (settings.redScreenFilterEnabled) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF94A3B8)
-    val findGlassTint = if (settings.redScreenFilterEnabled) MaterialTheme.colorScheme.surfaceVariant else Color(0xFF171D26)
+    // Adapt seamlessly across Dark, Light, High Contrast, and Night-Red themes
+    val findBg = colorScheme.background
+    val findFg = colorScheme.onBackground
+    val findMuted = colorScheme.onSurfaceVariant
+    val findGlassTint = colorScheme.surfaceVariant
+    val accentTint = colorScheme.primary
 
     val curLat = locationState.latitude
     val curLon = locationState.longitude
@@ -120,7 +124,7 @@ fun ArcParkFindModeScreen(
         phoneHeading != null &&
         absoluteBearing != null
 
-    val relativeTurn = if (canShowPhoneRelativeArrow && absoluteBearing != null && phoneHeading != null) {
+    val relativeTurn = if (canShowPhoneRelativeArrow) {
         GeoNavigationMath.relativeTurnDegrees(absoluteBearing, phoneHeading)
     } else null
 
@@ -155,7 +159,7 @@ fun ArcParkFindModeScreen(
 
     val isAligned = relativeTurn != null && abs(relativeTurn) <= 18f
     val activeArrowColor = when {
-        distanceMeters != null && distanceMeters <= 8.0 && !settings.redScreenFilterEnabled -> StatusAvailableGreen
+        distanceMeters != null && distanceMeters <= 8.0 && !settings.redScreenFilterEnabled -> semanticColors.success
         else -> findFg
     }
 
@@ -177,7 +181,7 @@ fun ArcParkFindModeScreen(
             // Subtle atmospheric beacon glow behind the dominant arrow
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val glowColor = if (distanceMeters != null && distanceMeters <= 8.0 && !settings.redScreenFilterEnabled) {
-                    StatusAvailableGreen
+                    semanticColors.success
                 } else {
                     findFg
                 }
@@ -220,22 +224,19 @@ fun ArcParkFindModeScreen(
                         ) {
                             Text(
                                 text = "ARCPARK FIND",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = textRoles.technical,
                                 color = findMuted,
-                                letterSpacing = 1.6.sp
+                                letterSpacing = 1.4.sp
                             )
                             Text(
                                 text = spot.name,
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontFamily = SpaceGroteskFontFamily,
-                                    fontWeight = FontWeight.Bold
-                                ),
+                                style = textRoles.heading,
                                 color = findFg
                             )
                             if (spot.floorOrLevel.isNotBlank()) {
                                 Text(
                                     text = "Floor / Level: ${spot.floorOrLevel}",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = textRoles.description,
                                     color = findMuted
                                 )
                             }
@@ -280,7 +281,7 @@ fun ArcParkFindModeScreen(
                                     Icon(
                                         imageVector = Icons.Outlined.WarningAmber,
                                         contentDescription = null,
-                                        tint = StatusWarningAmber,
+                                        tint = semanticColors.warning,
                                         modifier = Modifier.size(56.dp)
                                     )
                                     Text(
@@ -303,54 +304,101 @@ fun ArcParkFindModeScreen(
                             GlassSurface(
                                 tier = GlassTier.FLOATING_CHROME,
                                 shape = CircleShape,
-                                tintColor = findGlassTint.copy(alpha = 0.65f),
-                                borderColor = activeArrowColor.copy(alpha = if (isAligned) 0.45f else 0.16f),
+                                tintColor = findGlassTint.copy(alpha = if (isDark) 0.65f else 0.85f),
+                                borderColor = activeArrowColor.copy(alpha = if (isAligned) 0.52f else 0.22f),
                                 modifier = Modifier
-                                    .size(236.dp)
+                                    .size(258.dp)
                                     .testTag("arcpark_directional_arrow")
                             ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
                                     val cx = size.width / 2f
                                     val cy = size.height / 2f
-                                    val radius = size.minDimension / 2f * 0.85f
+                                    val center = Offset(cx, cy)
+                                    val radius = size.minDimension / 2f * 0.88f
 
                                     // Target sector arc at top indicating straight-ahead alignment
                                     drawArc(
-                                        color = findMuted.copy(alpha = 0.28f),
-                                        startAngle = -110f,
-                                        sweepAngle = 40f,
+                                        color = if (isAligned) {
+                                            activeArrowColor.copy(alpha = 0.72f)
+                                        } else {
+                                            findMuted.copy(alpha = 0.28f)
+                                        },
+                                        startAngle = -112f,
+                                        sweepAngle = 44f,
                                         useCenter = false,
                                         topLeft = Offset(cx - radius, cy - radius),
                                         size = Size(radius * 2f, radius * 2f),
-                                        style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                                        style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round)
                                     )
 
                                     if (isAligned) {
                                         drawCircle(
-                                            color = activeArrowColor.copy(alpha = 0.12f),
-                                            radius = radius * 0.72f,
-                                            center = Offset(cx, cy)
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    activeArrowColor.copy(alpha = 0.16f),
+                                                    Color.Transparent
+                                                ),
+                                                center = center,
+                                                radius = radius * 0.82f
+                                            ),
+                                            radius = radius * 0.82f,
+                                            center = center
                                         )
                                     }
 
-                                    rotate(degrees = animatedArrowRotation, pivot = Offset(cx, cy)) {
-                                        val shaftHalfW = radius * 0.115f
-                                        val headW = radius * 0.46f
-                                        val topY = cy - radius * 0.56f
-                                        val neckY = cy - radius * 0.08f
-                                        val tailY = cy + radius * 0.48f
+                                    rotate(degrees = animatedArrowRotation, pivot = center) {
+                                        val arrowPath = buildSmoothRoundedArrowPath(center, radius)
 
-                                        val arrowPath = Path().apply {
-                                            moveTo(cx, topY)
-                                            lineTo(cx + headW, neckY)
-                                            lineTo(cx + shaftHalfW, neckY)
-                                            lineTo(cx + shaftHalfW, tailY)
-                                            lineTo(cx - shaftHalfW, tailY)
-                                            lineTo(cx - shaftHalfW, neckY)
-                                            lineTo(cx - headW, neckY)
-                                            close()
+                                        // Soft atmospheric drop halo for sculpted depth
+                                        drawPath(
+                                            path = arrowPath,
+                                            color = activeArrowColor.copy(alpha = if (isDark) 0.16f else 0.12f),
+                                            style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                                        )
+
+                                        // Frosted glass body gradient
+                                        val baseFillTop = if (isAligned) {
+                                            activeArrowColor.copy(alpha = 0.96f)
+                                        } else {
+                                            activeArrowColor.copy(alpha = if (isDark) 0.92f else 0.88f)
                                         }
-                                        drawPath(path = arrowPath, color = activeArrowColor)
+                                        val baseFillBottom = if (isAligned) {
+                                            accentTint.copy(alpha = 0.72f)
+                                        } else {
+                                            activeArrowColor.copy(alpha = if (isDark) 0.54f else 0.62f)
+                                        }
+                                        drawPath(
+                                            path = arrowPath,
+                                            brush = Brush.linearGradient(
+                                                colors = listOf(baseFillTop, baseFillBottom),
+                                                start = Offset(cx - radius * 0.4f, cy - radius * 0.6f),
+                                                end = Offset(cx + radius * 0.4f, cy + radius * 0.55f)
+                                            )
+                                        )
+
+                                        // Subtle top-left glass specular sheen
+                                        drawPath(
+                                            path = arrowPath,
+                                            brush = Brush.linearGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = if (settings.redScreenFilterEnabled) 0.10f else 0.34f),
+                                                    Color.Transparent
+                                                ),
+                                                start = Offset(cx - radius * 0.5f, cy - radius * 0.7f),
+                                                end = Offset(cx, cy + radius * 0.2f)
+                                            )
+                                        )
+
+                                        // Crisp translucent rim border
+                                        drawPath(
+                                            path = arrowPath,
+                                            color = if (settings.redScreenFilterEnabled) {
+                                                accentTint.copy(alpha = 0.65f)
+                                            } else {
+                                                Color.White.copy(alpha = if (isDark) 0.45f else 0.70f)
+                                            },
+                                            style = Stroke(width = 2.dp.toPx())
+                                        )
                                     }
                                 }
                             }
@@ -360,7 +408,7 @@ fun ArcParkFindModeScreen(
                             GlassCard(
                                 tier = GlassTier.CARD,
                                 tintColor = findGlassTint,
-                                borderColor = StatusWarningAmber.copy(alpha = 0.48f),
+                                borderColor = semanticColors.warning.copy(alpha = 0.48f),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("arcpark_unreliable_orientation_banner")
@@ -373,7 +421,7 @@ fun ArcParkFindModeScreen(
                                     Icon(
                                         imageVector = Icons.Outlined.Explore,
                                         contentDescription = null,
-                                        tint = StatusWarningAmber,
+                                        tint = semanticColors.warning,
                                         modifier = Modifier.size(40.dp)
                                     )
                                     Text(
@@ -382,13 +430,13 @@ fun ArcParkFindModeScreen(
                                         } else {
                                             "Compass orientation unreliable"
                                         },
-                                        style = MaterialTheme.typography.titleMedium,
+                                        style = textRoles.heading.copy(fontSize = 18.sp),
                                         color = findFg,
                                         textAlign = TextAlign.Center
                                     )
                                     Text(
                                         text = "Phone-relative arrow is disabled to avoid inaccurate direction. Follow the geographic bearing below.",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = textRoles.description,
                                         color = findMuted,
                                         textAlign = TextAlign.Center
                                     )
@@ -400,9 +448,7 @@ fun ArcParkFindModeScreen(
                                                 absoluteBearing.toInt(),
                                                 GeoNavigationMath.cardinal16(absoluteBearing)
                                             ),
-                                            style = MaterialTheme.typography.titleMedium.copy(
-                                                fontFamily = JetBrainsMonoFontFamily
-                                            ),
+                                            style = textRoles.measurement,
                                             color = findFg
                                         )
                                     }
@@ -429,11 +475,7 @@ fun ArcParkFindModeScreen(
                         if (distanceMeters != null) {
                             Text(
                                 text = GeoNavigationMath.formatDistance(distanceMeters, settings.useImperialUnits),
-                                style = MaterialTheme.typography.displaySmall.copy(
-                                    fontSize = 42.sp,
-                                    fontFamily = SpaceGroteskFontFamily,
-                                    fontWeight = FontWeight.Bold
-                                ),
+                                style = textRoles.display.copy(fontSize = 44.sp),
                                 color = findFg,
                                 modifier = Modifier.testTag("arcpark_find_distance")
                             )
@@ -447,7 +489,7 @@ fun ArcParkFindModeScreen(
                         }
                         Text(
                             text = promptText,
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = textRoles.heading,
                             color = findMuted,
                             modifier = Modifier.testTag("arcpark_find_prompt")
                         )
@@ -461,7 +503,7 @@ fun ArcParkFindModeScreen(
                                         absoluteBearing.toInt(),
                                         GeoNavigationMath.cardinal16(absoluteBearing)
                                     ),
-                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    style = textRoles.technical,
                                     color = findFg,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                 )
@@ -489,7 +531,7 @@ fun ArcParkFindModeScreen(
                                         GeoNavigationMath.cardinal8(travelBearing),
                                         travelBearing.toInt()
                                     ),
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = textRoles.technical,
                                     color = findMuted
                                 )
                             }
@@ -507,13 +549,51 @@ fun ArcParkFindModeScreen(
                             } else {
                                 accText
                             },
-                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMonoFontFamily),
-                            color = if (isPoorGps && hasLocationFix) StatusWarningAmber else findMuted,
+                            style = textRoles.technical,
+                            color = if (isPoorGps && hasLocationFix) semanticColors.warning else findMuted,
                             modifier = Modifier.testTag("arcpark_find_accuracy")
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Constructs a large, thick, smoothly rounded sculptural arrow oriented toward 12 o'clock.
+ */
+private fun buildSmoothRoundedArrowPath(center: Offset, radius: Float): Path {
+    val cx = center.x
+    val cy = center.y
+    val topY = cy - radius * 0.62f
+    val headW = radius * 0.56f
+    val wingY = cy + radius * 0.04f
+    val notchY = cy - radius * 0.05f
+    val shaftHalfW = radius * 0.175f
+    val tailY = cy + radius * 0.52f
+
+    return Path().apply {
+        // Start just left of rounded nose tip and sweep clockwise around smooth curves
+        moveTo(cx - radius * 0.075f, topY + radius * 0.095f)
+        quadraticTo(cx, topY - radius * 0.04f, cx + radius * 0.075f, topY + radius * 0.095f)
+
+        // Right slope into rounded right wingtip
+        lineTo(cx + headW * 0.90f, wingY - radius * 0.12f)
+        quadraticTo(cx + headW * 1.04f, wingY + radius * 0.06f, cx + headW * 0.72f, wingY + radius * 0.04f)
+
+        // Smooth inward waist curve to thick shaft
+        quadraticTo(cx + shaftHalfW * 1.35f, notchY + radius * 0.08f, cx + shaftHalfW, wingY + radius * 0.09f)
+
+        // Down right side of stem into rounded tail cap
+        lineTo(cx + shaftHalfW, tailY - radius * 0.10f)
+        quadraticTo(cx + shaftHalfW, tailY + radius * 0.06f, cx, tailY + radius * 0.06f)
+        quadraticTo(cx - shaftHalfW, tailY + radius * 0.06f, cx - shaftHalfW, tailY - radius * 0.10f)
+
+        // Up left side of stem & outward waist curve to rounded left wingtip
+        lineTo(cx - shaftHalfW, wingY + radius * 0.09f)
+        quadraticTo(cx - shaftHalfW * 1.35f, notchY + radius * 0.08f, cx - headW * 0.72f, wingY + radius * 0.04f)
+        quadraticTo(cx - headW * 1.04f, wingY + radius * 0.06f, cx - headW * 0.90f, wingY - radius * 0.12f)
+        close()
     }
 }

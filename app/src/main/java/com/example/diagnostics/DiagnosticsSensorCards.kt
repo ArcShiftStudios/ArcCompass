@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -48,7 +49,7 @@ import com.example.sensor.RequiredSensorType
 import com.example.sensor.SensorSpec
 import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.StatusUnavailableSlate
+import com.example.ui.theme.arcSemanticColors
 import java.util.Locale
 
 @Composable
@@ -147,6 +148,7 @@ private fun CapabilityRowCard(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -191,6 +193,11 @@ internal fun SensorFilterRow(
                 selected = selectedFilter == filter,
                 onClick = { onSelectFilter(filter) },
                 label = { Text("${filter.label} ($count)") },
+                colors = FilterChipDefaults.filterChipColors(
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .testTag("filter_chip_${filter.name.lowercase()}")
@@ -240,7 +247,7 @@ internal fun SensorSpecificationCard(
                         tint = if (spec.isAvailable) {
                             MaterialTheme.colorScheme.secondary
                         } else {
-                            StatusUnavailableSlate
+                            MaterialTheme.arcSemanticColors.muted
                         },
                         modifier = Modifier.size(20.dp)
                     )
@@ -404,7 +411,8 @@ internal fun PermissionsAndLifecycleCard(
         ) {
             Text(
                 text = stringResource(R.string.section_permissions_lifecycle),
-                style = MaterialTheme.typography.titleSmall
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "Location permission: ${locationState.permissionState.label}",

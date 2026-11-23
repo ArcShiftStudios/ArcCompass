@@ -18,10 +18,20 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import com.example.data.CompassSensorMode
+import com.example.data.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
 /**
@@ -37,14 +47,20 @@ class SensorRepository(
     private val provider: SensorManagerProvider = AndroidSensorManagerProvider(context),
     private val detector: SensorDetector = SensorDetector(provider),
     private val evaluator: SensorCapabilityEvaluator = SensorCapabilityEvaluator(),
-    private val accuracyMonitor: SensorAccuracyMonitor = SensorAccuracyMonitor()
+    private val accuracyMonitor: SensorAccuracyMonitor = SensorAccuracyMonitor(),
+    private val settingsRepository: SettingsRepository? = null
 ) {
     private val appContext = context.applicationContext
+
+    private val healthMonitor = CompassHealthMonitor()
 
     private val compassController = CompassSensorController(
         provider = provider,
         accuracyMonitor = accuracyMonitor,
-        onTelemetrySample = ::handleSensorSample
+        onTelemetrySample = ::handleSensorSample,
+        onHeadingComputed = { rawDeg, smoothedDeg, pitchDeg, accuracy ->
+            healthMonitor.onHeadingComputed(rawDeg, smoothedDeg, pitchDeg, accuracy)
+        }
     )
 
     private val levelController = LevelSensorController(
@@ -53,10 +69,18 @@ class SensorRepository(
         onTelemetrySample = ::handleSensorSample
     )
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var diagnosticTimerJob: Job? = null
+    private var infoBannerTimerJob: Job? = null
+    private var configuredSensorMode: CompassSensorMode = CompassSensorMode.AUTO_DEFAULT
+    private var activeRecoveryOverride: CompassSource? = null
+    private var activeRecoveryNote: String? = null
+
     val compassReadiness: StateFlow<CompassReadinessState> = compassController.readiness
     val levelReadiness: StateFlow<LevelReadinessState> = levelController.readiness
     val headingState: StateFlow<CompassHeadingState> = compassController.headingState
     val levelState: StateFlow<LevelTiltState> = levelController.levelState
+    val compassDiagnosticsState: StateFlow<CompassDiagnosticsState> = healthMonitor.state
 
     private var resolvedSensors: Map<RequiredSensorType, Sensor> = emptyMap()
     private var isObservingActive = false
@@ -89,6 +113,30 @@ class SensorRepository(
                 lastScanMillis = System.currentTimeMillis()
             )
         )
+
+        settingsRepository?.let { repo ->
+            scope.launch {
+                repo.settingsFlow
+                    .map { it.compassSensorMode }
+                    .distinctUntilChanged()
+                    .collect { persistedMode ->
+                        if (configuredSensorMode != persistedMode) {
+                            configuredSensorMode = persistedMode
+                            activeRecoveryOverride = overrideSourceForPersistedMode(persistedMode)
+                            activeRecoveryNote = null
+                            if (isObservingActive) {
+                                applyActiveModeToControllers(notifyUser = false)
+                            } else {
+                                healthMonitor.onCompassSourceChanged(
+                                    newSource = resolveEffectiveSource(persistedMode, resolvedSensors),
+                                    sensorMode = persistedMode,
+                                    availableSensors = resolvedSensors.keys
+                                )
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     val engineState: StateFlow<SensorEngineState> = _engineState.asStateFlow()
@@ -155,14 +203,45 @@ class SensorRepository(
         resolvedSensors = detection.resolvedSensors
 
         val hasLocationFix = _engineState.value.locationState.latitude != null
-        compassController.configureAndStart(resolvedSensors, hasLocationFix)
+        val requestedOverride = activeRecoveryOverride ?: overrideSourceForPersistedMode(configuredSensorMode)
+        val effectiveOverride = requestedOverride?.let { desired ->
+            resolveGracefulSourceOverride(desired, resolvedSensors)
+        }
+        compassController.configureAndStart(
+            resolvedSensors = resolvedSensors,
+            hasLocationFix = hasLocationFix,
+            sourceOverride = effectiveOverride,
+            limitationNote = activeRecoveryNote
+        )
         levelController.configureAndStart(resolvedSensors)
 
+        val actualSource = compassController.readiness.value.source
+        healthMonitor.onObservingStarted(
+            availableSensors = resolvedSensors.keys,
+            primaryCompassSensor = CompassHealthMonitor.primarySensorForSource(actualSource, resolvedSensors.keys),
+            gameRotationVectorAvailable = provider.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) != null,
+            activeSource = actualSource,
+            sensorMode = configuredSensorMode
+        )
+
+        registerAuxiliaryDiagnosticSensors()
+
+        resolvedSensors[RequiredSensorType.SIGNIFICANT_MOTION]?.let { triggerSensor ->
+            provider.requestTriggerSensor(significantMotionListener, triggerSensor)
+        }
+
+        startLocationUpdatesIfPermitted()
+        recomputeSpecsAndCapabilities()
+    }
+
+    private fun registerAuxiliaryDiagnosticSensors() {
+        provider.unregisterListener(auxiliaryListener)
         // Register auxiliary diagnostic sensors once (avoiding double-registering sensors already claimed)
         val auxiliaryTypes = listOf(
             RequiredSensorType.ACCELEROMETER,
             RequiredSensorType.MAGNETIC_FIELD,
             RequiredSensorType.GYROSCOPE,
+            RequiredSensorType.ROTATION_VECTOR,
             RequiredSensorType.GRAVITY,
             RequiredSensorType.LINEAR_ACCELERATION,
             RequiredSensorType.PRESSURE
@@ -174,19 +253,17 @@ class SensorRepository(
                 provider.registerListener(auxiliaryListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
             }
         }
-
-        resolvedSensors[RequiredSensorType.SIGNIFICANT_MOTION]?.let { triggerSensor ->
-            provider.requestTriggerSensor(significantMotionListener, triggerSensor)
-        }
-
-        startLocationUpdatesIfPermitted()
-        recomputeSpecsAndCapabilities()
     }
 
     fun stopObserving() {
         if (!isObservingActive) return
         isObservingActive = false
 
+        diagnosticTimerJob?.cancel()
+        diagnosticTimerJob = null
+        infoBannerTimerJob?.cancel()
+        infoBannerTimerJob = null
+        healthMonitor.onObservingStopped()
         compassController.stop()
         levelController.stop()
         provider.unregisterListener(auxiliaryListener)
@@ -238,6 +315,240 @@ class SensorRepository(
 
     fun clearLevelReference() = levelController.clearReferenceOffset()
 
+    fun requestCompassDiagnosticCheck() = healthMonitor.requestCheckConfirmation()
+
+    fun cancelCompassDiagnosticConfirmation() = healthMonitor.cancelCheckConfirmation()
+
+    fun dismissCompassAnomalyBanner() = healthMonitor.dismissBanner()
+
+    fun dismissInfoBanner() {
+        infoBannerTimerJob?.cancel()
+        infoBannerTimerJob = null
+        healthMonitor.dismissInfoBanner()
+    }
+
+    fun dismissMagneticInterferenceBanner() = healthMonitor.dismissMagneticInterferenceBanner()
+
+    fun dismissVerticalOrientationBanner() = healthMonitor.dismissVerticalOrientationBanner()
+
+    fun selectCompassSensorMode(mode: CompassSensorMode) {
+        diagnosticTimerJob?.cancel()
+        configuredSensorMode = mode
+        activeRecoveryOverride = overrideSourceForPersistedMode(mode)
+        activeRecoveryNote = null
+        settingsRepository?.let { repo ->
+            scope.launch { repo.setCompassSensorMode(mode) }
+        }
+        if (isObservingActive) {
+            applyActiveModeToControllers(notifyUser = true)
+        } else {
+            val resolved = resolveEffectiveSource(mode, resolvedSensors)
+            healthMonitor.onCompassSourceChanged(resolved, mode, resolvedSensors.keys)
+        }
+    }
+
+    fun startCompassDiagnosticCheck() {
+        healthMonitor.startInteractiveCheck()
+        diagnosticTimerJob?.cancel()
+        diagnosticTimerJob = scope.launch {
+            val steps = 20
+            val stepDelay = CompassHealthMonitor.INTERACTIVE_TEST_DURATION_MS / steps
+            repeat(steps) {
+                delay(stepDelay)
+                healthMonitor.evaluateTimeoutIfNeeded()
+                if (healthMonitor.state.value.checkPhase == InteractiveCheckPhase.COMPLETED) {
+                    applyRecommendedRecoveryIfNeeded()
+                    return@launch
+                }
+            }
+            if (healthMonitor.state.value.checkPhase == InteractiveCheckPhase.RUNNING) {
+                healthMonitor.finalizeInteractiveCheck()
+                applyRecommendedRecoveryIfNeeded()
+            }
+        }
+    }
+
+    fun resetCompassRecovery() {
+        diagnosticTimerJob?.cancel()
+        configuredSensorMode = CompassSensorMode.AUTO_DEFAULT
+        activeRecoveryOverride = null
+        activeRecoveryNote = null
+        settingsRepository?.let { repo ->
+            scope.launch { repo.setCompassSensorMode(CompassSensorMode.AUTO_DEFAULT) }
+        }
+        healthMonitor.clearRecoveryState()
+        if (isObservingActive) {
+            val hasLocationFix = _engineState.value.locationState.latitude != null
+            compassController.configureAndStart(
+                resolvedSensors = resolvedSensors,
+                hasLocationFix = hasLocationFix
+            )
+            registerAuxiliaryDiagnosticSensors()
+            val actual = compassController.readiness.value.source
+            healthMonitor.onCompassSourceChanged(actual, CompassSensorMode.AUTO_DEFAULT, resolvedSensors.keys)
+            triggerTimedInfoBanner(
+                eventKey = "mode_restored_default",
+                title = "Default Sensor Mode Restored",
+                message = "Compass returned to ${actual.label}."
+            )
+        }
+    }
+
+    private fun applyRecommendedRecoveryIfNeeded() {
+        val state = healthMonitor.state.value
+        val recommended = state.activeRecoverySource
+        if (recommended != null && recommended != compassController.readiness.value.source) {
+            activeRecoveryOverride = recommended
+            activeRecoveryNote = state.recoveryDisclosure
+            if (recommended == CompassSource.ACCELEROMETER_AND_MAGNETOMETER) {
+                configuredSensorMode = CompassSensorMode.FUSION_ACCEL_MAG
+                settingsRepository?.let { repo ->
+                    scope.launch { repo.setCompassSensorMode(CompassSensorMode.FUSION_ACCEL_MAG) }
+                }
+            }
+            if (isObservingActive) {
+                val hasLocationFix = _engineState.value.locationState.latitude != null
+                compassController.configureAndStart(
+                    resolvedSensors = resolvedSensors,
+                    hasLocationFix = hasLocationFix,
+                    sourceOverride = recommended,
+                    limitationNote = state.recoveryDisclosure
+                )
+                registerAuxiliaryDiagnosticSensors()
+                healthMonitor.onCompassSourceChanged(
+                    newSource = compassController.readiness.value.source,
+                    sensorMode = configuredSensorMode,
+                    availableSensors = resolvedSensors.keys
+                )
+            }
+            val bannerTitle = if (recommended == CompassSource.ACCELEROMETER_AND_MAGNETOMETER) {
+                "Sensor Fusion Active"
+            } else {
+                "Fallback Mode Active"
+            }
+            val bannerMessage = state.recoveryDisclosure ?: "Switched to ${recommended.label}."
+            triggerTimedInfoBanner(
+                eventKey = "recovery_${recommended.name}",
+                title = bannerTitle,
+                message = bannerMessage
+            )
+        } else if (recommended == null && (activeRecoveryOverride != null || configuredSensorMode != CompassSensorMode.AUTO_DEFAULT)) {
+            configuredSensorMode = CompassSensorMode.AUTO_DEFAULT
+            activeRecoveryOverride = null
+            activeRecoveryNote = null
+            settingsRepository?.let { repo ->
+                scope.launch { repo.setCompassSensorMode(CompassSensorMode.AUTO_DEFAULT) }
+            }
+            if (isObservingActive) {
+                val hasLocationFix = _engineState.value.locationState.latitude != null
+                compassController.configureAndStart(
+                    resolvedSensors = resolvedSensors,
+                    hasLocationFix = hasLocationFix
+                )
+                registerAuxiliaryDiagnosticSensors()
+                healthMonitor.onCompassSourceChanged(
+                    newSource = compassController.readiness.value.source,
+                    sensorMode = CompassSensorMode.AUTO_DEFAULT,
+                    availableSensors = resolvedSensors.keys
+                )
+            }
+            triggerTimedInfoBanner(
+                eventKey = "recovery_default_healthy",
+                title = "Default Compass Healthy",
+                message = "Primary orientation sensor is responsive; using ${compassController.readiness.value.source.label}."
+            )
+        } else if (recommended != null && isObservingActive) {
+            // Already active on that source (e.g. Retest confirmed same fallback)
+            healthMonitor.onCompassSourceChanged(
+                newSource = compassController.readiness.value.source,
+                sensorMode = configuredSensorMode,
+                availableSensors = resolvedSensors.keys
+            )
+        }
+    }
+
+    private fun applyActiveModeToControllers(notifyUser: Boolean) {
+        val hasLocationFix = _engineState.value.locationState.latitude != null
+        val desiredOverride = activeRecoveryOverride ?: overrideSourceForPersistedMode(configuredSensorMode)
+        val effectiveOverride = desiredOverride?.let { resolveGracefulSourceOverride(it, resolvedSensors) }
+        compassController.configureAndStart(
+            resolvedSensors = resolvedSensors,
+            hasLocationFix = hasLocationFix,
+            sourceOverride = effectiveOverride,
+            limitationNote = activeRecoveryNote
+        )
+        registerAuxiliaryDiagnosticSensors()
+        val actualSource = compassController.readiness.value.source
+        healthMonitor.onCompassSourceChanged(actualSource, configuredSensorMode, resolvedSensors.keys)
+        if (notifyUser) {
+            triggerTimedInfoBanner(
+                eventKey = "manual_mode_${configuredSensorMode.name}_${actualSource.name}",
+                title = "Sensor Mode Updated",
+                message = "Active source: ${actualSource.label}."
+            )
+        }
+    }
+
+    private fun triggerTimedInfoBanner(
+        eventKey: String,
+        title: String,
+        message: String
+    ) {
+        val emitted = healthMonitor.showInfoBanner(
+            eventKey = eventKey,
+            title = title,
+            message = message
+        )
+        if (emitted) {
+            infoBannerTimerJob?.cancel()
+            infoBannerTimerJob = scope.launch {
+                delay(CompassHealthMonitor.INFO_BANNER_DURATION_MS)
+                healthMonitor.dismissInfoBanner(eventKey)
+            }
+        }
+    }
+
+    private fun overrideSourceForPersistedMode(mode: CompassSensorMode): CompassSource? = when (mode) {
+        CompassSensorMode.AUTO_DEFAULT -> null
+        CompassSensorMode.ROTATION_VECTOR -> CompassSource.ROTATION_VECTOR
+        CompassSensorMode.FUSION_ACCEL_MAG -> CompassSource.ACCELEROMETER_AND_MAGNETOMETER
+        CompassSensorMode.GAME_ROTATION_VECTOR -> CompassSource.GAME_ROTATION_VECTOR_RELATIVE
+        CompassSensorMode.GYROSCOPE_RELATIVE -> CompassSource.GYROSCOPE_RELATIVE
+    }
+
+    private fun resolveGracefulSourceOverride(
+        desired: CompassSource,
+        sensors: Map<RequiredSensorType, Sensor>
+    ): CompassSource? {
+        val hasRv = sensors.containsKey(RequiredSensorType.ROTATION_VECTOR)
+        val hasAccelMag = sensors.containsKey(RequiredSensorType.ACCELEROMETER) &&
+            sensors.containsKey(RequiredSensorType.MAGNETIC_FIELD)
+        val hasGameRv = provider.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) != null
+        val hasGyro = sensors.containsKey(RequiredSensorType.GYROSCOPE)
+
+        return when (desired) {
+            CompassSource.ROTATION_VECTOR -> if (hasRv) CompassSource.ROTATION_VECTOR else null
+            CompassSource.ACCELEROMETER_AND_MAGNETOMETER -> if (hasAccelMag) CompassSource.ACCELEROMETER_AND_MAGNETOMETER else null
+            CompassSource.GAME_ROTATION_VECTOR_RELATIVE -> if (hasGameRv) CompassSource.GAME_ROTATION_VECTOR_RELATIVE else null
+            CompassSource.GYROSCOPE_RELATIVE -> if (hasGyro) CompassSource.GYROSCOPE_RELATIVE else null
+            CompassSource.UNSUPPORTED -> null
+        }
+    }
+
+    private fun resolveEffectiveSource(
+        mode: CompassSensorMode,
+        sensors: Map<RequiredSensorType, Sensor>
+    ): CompassSource {
+        val desired = overrideSourceForPersistedMode(mode)
+        val resolvedOverride = desired?.let { resolveGracefulSourceOverride(it, sensors) }
+        return resolvedOverride ?: when {
+            sensors.containsKey(RequiredSensorType.ROTATION_VECTOR) -> CompassSource.ROTATION_VECTOR
+            sensors.containsKey(RequiredSensorType.ACCELEROMETER) &&
+                sensors.containsKey(RequiredSensorType.MAGNETIC_FIELD) -> CompassSource.ACCELEROMETER_AND_MAGNETOMETER
+            else -> CompassSource.UNSUPPORTED
+        }
+    }
+
     private fun isHandledByControllers(type: RequiredSensorType): Boolean {
         val compassSrc = compassController.readiness.value.source
         val levelSrc = levelController.readiness.value.source
@@ -246,6 +557,9 @@ class SensorRepository(
                 type == RequiredSensorType.ROTATION_VECTOR || type == RequiredSensorType.MAGNETIC_FIELD
             CompassSource.ACCELEROMETER_AND_MAGNETOMETER ->
                 type == RequiredSensorType.ACCELEROMETER || type == RequiredSensorType.MAGNETIC_FIELD
+            CompassSource.GYROSCOPE_RELATIVE ->
+                type == RequiredSensorType.GYROSCOPE
+            CompassSource.GAME_ROTATION_VECTOR_RELATIVE,
             CompassSource.UNSUPPORTED -> false
         }
         val handledByLevel = when (levelSrc) {
@@ -259,6 +573,8 @@ class SensorRepository(
 
     private fun handleSensorSample(type: RequiredSensorType, values: FloatArray) {
         val now = System.currentTimeMillis()
+        healthMonitor.onSample(type, values)
+        val updatedTimestamps = latestTelemetry.sensorUpdateTimestamps + (type to now)
         latestTelemetry = when (type) {
             RequiredSensorType.MAGNETIC_FIELD -> {
                 val x = values.getOrElse(0) { 0f }
@@ -268,6 +584,7 @@ class SensorRepository(
                 latestTelemetry.copy(
                     magneticFieldMicroTesla = magnitude,
                     magneticAxes = AxisReading(x, y, z),
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
@@ -278,6 +595,7 @@ class SensorRepository(
                         values.getOrElse(1) { 0f },
                         values.getOrElse(2) { 0f }
                     ),
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
@@ -288,6 +606,7 @@ class SensorRepository(
                         values.getOrElse(1) { 0f },
                         values.getOrElse(2) { 0f }
                     ),
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
@@ -298,6 +617,7 @@ class SensorRepository(
                         values.getOrElse(1) { 0f },
                         values.getOrElse(2) { 0f }
                     ),
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
@@ -308,12 +628,14 @@ class SensorRepository(
                         values.getOrElse(1) { 0f },
                         values.getOrElse(2) { 0f }
                     ),
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
             RequiredSensorType.ROTATION_VECTOR -> {
                 latestTelemetry.copy(
                     rotationVectorComponents = values,
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }
@@ -327,6 +649,7 @@ class SensorRepository(
                 latestTelemetry.copy(
                     pressureHpa = hpa,
                     barometricAltitudeEstimateMeters = estAltitude,
+                    sensorUpdateTimestamps = updatedTimestamps,
                     lastUpdatedMillis = now
                 )
             }

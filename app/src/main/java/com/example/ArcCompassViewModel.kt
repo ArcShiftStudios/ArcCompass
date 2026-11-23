@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AccentPreset
 import com.example.data.AppThemeMode
 import com.example.data.ArcCompassSettings
+import com.example.data.CompassSensorMode
 import com.example.data.DialStyle
 import com.example.data.ExpressiveDialShape
 import com.example.data.HeadingFormat
 import com.example.data.SavedPlaceEntity
+import com.example.sensor.CompassDiagnosticsState
 import com.example.sensor.CompassHeadingState
 import com.example.sensor.LevelTiltState
 import com.example.sensor.SensorEngineState
@@ -32,6 +34,7 @@ class ArcCompassViewModel(application: Application) : AndroidViewModel(applicati
     val engineState: StateFlow<SensorEngineState> = sensorRepository.engineState
     val headingState: StateFlow<CompassHeadingState> = sensorRepository.headingState
     val levelState: StateFlow<LevelTiltState> = sensorRepository.levelState
+    val compassDiagnosticsState: StateFlow<CompassDiagnosticsState> = sensorRepository.compassDiagnosticsState
 
     val settings: StateFlow<ArcCompassSettings> = settingsRepository.settingsFlow.stateIn(
         scope = viewModelScope,
@@ -52,6 +55,19 @@ class ArcCompassViewModel(application: Application) : AndroidViewModel(applicati
 
     fun captureLevelReference() = sensorRepository.captureLevelReference()
     fun clearLevelReference() = sensorRepository.clearLevelReference()
+
+    fun requestCompassDiagnosticCheck() = sensorRepository.requestCompassDiagnosticCheck()
+    fun cancelCompassDiagnosticConfirmation() = sensorRepository.cancelCompassDiagnosticConfirmation()
+    fun startCompassDiagnosticCheck() = sensorRepository.startCompassDiagnosticCheck()
+    fun dismissCompassAnomalyBanner() = sensorRepository.dismissCompassAnomalyBanner()
+    fun dismissInfoBanner() = sensorRepository.dismissInfoBanner()
+    fun dismissMagneticInterferenceBanner() = sensorRepository.dismissMagneticInterferenceBanner()
+    fun dismissVerticalOrientationBanner() = sensorRepository.dismissVerticalOrientationBanner()
+    fun resetCompassRecovery() = sensorRepository.resetCompassRecovery()
+    fun setCompassSensorMode(mode: CompassSensorMode) = sensorRepository.selectCompassSensorMode(mode)
+    fun markCalibrationGuidanceSeen() = viewModelScope.launch {
+        settingsRepository.setHasSeenCalibrationGuidance(true)
+    }
 
     fun saveCurrentPlace(
         name: String,
@@ -88,6 +104,7 @@ class ArcCompassViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch { settingsRepository.setExpressiveAccentPreset(preset) }
     fun setHeadingFormat(format: HeadingFormat) = viewModelScope.launch { settingsRepository.setHeadingFormat(format) }
     fun setShowHeadingDecimals(enabled: Boolean) = viewModelScope.launch { settingsRepository.setShowHeadingDecimals(enabled) }
+    fun setRawMode(enabled: Boolean) = viewModelScope.launch { settingsRepository.setRawMode(enabled) }
     fun setThemeMode(mode: AppThemeMode) = viewModelScope.launch { settingsRepository.setThemeMode(mode) }
     fun setAccentPreset(preset: AccentPreset) = viewModelScope.launch { settingsRepository.setAccentPreset(preset) }
     fun setDynamicColor(enabled: Boolean) = viewModelScope.launch { settingsRepository.setDynamicColor(enabled) }

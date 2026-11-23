@@ -108,6 +108,7 @@ fun SensorDiagnosticsScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onBackground,
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 TopAppBar(
@@ -121,7 +122,8 @@ fun SensorDiagnosticsScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                    contentDescription = stringResource(R.string.action_back)
+                                    contentDescription = stringResource(R.string.action_back),
+                                    tint = MaterialTheme.colorScheme.onBackground
                                 )
                             }
                         }
@@ -131,6 +133,7 @@ fun SensorDiagnosticsScreen(
                             Text(
                                 text = stringResource(R.string.diagnostics_title),
                                 style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -154,12 +157,16 @@ fun SensorDiagnosticsScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
-                                contentDescription = stringResource(R.string.action_rescan)
+                                contentDescription = stringResource(R.string.action_rescan),
+                                tint = MaterialTheme.colorScheme.onBackground
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = androidx.compose.ui.graphics.Color.Transparent
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground,
+                        actionIconContentColor = MaterialTheme.colorScheme.onBackground
                     )
                 )
             }

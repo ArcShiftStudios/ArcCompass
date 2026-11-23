@@ -6,17 +6,23 @@ import androidx.compose.ui.graphics.Color
 val ArcCharcoalBackground = Color(0xFF090B0F)
 val ArcCharcoalSurface = Color(0xFF11151C)
 val ArcCharcoalSurfaceVariant = Color(0xFF1A202B)
-val ArcCharcoalOnSurface = Color(0xFFF1F5F9)
-val ArcCharcoalOnSurfaceVariant = Color(0xFF94A3B8)
+val ArcCharcoalOnSurface = Color(0xFFF4F6FA)         // Primary: near-white
+val ArcCharcoalOnSurfaceVariant = Color(0xFFB3BCCB)  // Secondary: soft light grey
+val ArcCharcoalTertiary = Color(0xFF7B8598)          // Tertiary: muted grey
 val ArcCharcoalOutline = Color(0xFF2B3444)
+val ArcDarkError = Color(0xFFFF6B7A)
+val ArcDarkOnError = Color(0xFF2B0409)
 
 // ArcShift Alabaster Light Palette
 val ArcAlabasterBackground = Color(0xFFF5F7FA)
 val ArcAlabasterSurface = Color(0xFFFFFFFF)
 val ArcAlabasterSurfaceVariant = Color(0xFFE7ECF2)
-val ArcAlabasterOnSurface = Color(0xFF0F172A)
-val ArcAlabasterOnSurfaceVariant = Color(0xFF475569)
+val ArcAlabasterOnSurface = Color(0xFF0D1117)       // Primary: near-black
+val ArcAlabasterOnSurfaceVariant = Color(0xFF3E4756) // Secondary: dark grey
+val ArcAlabasterTertiary = Color(0xFF636E7E)         // Tertiary: muted charcoal
 val ArcAlabasterOutline = Color(0xFFCBD5E1)
+val ArcLightError = Color(0xFFC62828)
+val ArcLightOnError = Color(0xFFFFFFFF)
 
 // Configurable Accent Presets
 val AccentCoolBlueDark = Color(0xFF8AB8FF)
@@ -54,8 +60,24 @@ val NightRedOutline = Color(0xFF5C0A0A)
 
 // Precision North Marker & Semantic Diagnostic Colors
 val NorthIndicatorRed = Color(0xFFEF4444)
+val NorthIndicatorRedLight = Color(0xFFDC2626)
+
 val StatusAvailableGreen = Color(0xFF10B981)
+val StatusAvailableGreenDark = Color(0xFF34D399)
+val StatusAvailableGreenLight = Color(0xFF047857)
+
 val StatusUnavailableSlate = Color(0xFF64748B)
+val StatusUnavailableSlateDark = Color(0xFF94A3B8)
+val StatusUnavailableSlateLight = Color(0xFF475569)
+
 val StatusWarningAmber = Color(0xFFF59E0B)
+val StatusWarningAmberDark = Color(0xFFFBBF24)
+val StatusWarningAmberLight = Color(0xFFB45309)
+
 val StatusInitializingSky = Color(0xFF38BDF8)
+val StatusInitializingSkyDark = Color(0xFF38BDF8)
+val StatusInitializingSkyLight = Color(0xFF0369A1)
+
 val StatusUnreliableRose = Color(0xFFF43F5E)
+val StatusUnreliableRoseDark = Color(0xFFFB7185)
+val StatusUnreliableRoseLight = Color(0xFFBE123C)

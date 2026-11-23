@@ -1,9 +1,13 @@
 package com.example.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -12,13 +16,64 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import com.example.data.AccentPreset
 import com.example.data.AppThemeMode
 import com.example.data.ArcCompassSettings
+
+@Immutable
+data class ArcSemanticColors(
+    val success: Color,
+    val warning: Color,
+    val error: Color,
+    val info: Color,
+    val muted: Color,
+    val northMarker: Color
+)
+
+private val DarkSemanticColors = ArcSemanticColors(
+    success = StatusAvailableGreenDark,
+    warning = StatusWarningAmberDark,
+    error = StatusUnreliableRoseDark,
+    info = StatusInitializingSkyDark,
+    muted = StatusUnavailableSlateDark,
+    northMarker = NorthIndicatorRed
+)
+
+private val LightSemanticColors = ArcSemanticColors(
+    success = StatusAvailableGreenLight,
+    warning = StatusWarningAmberLight,
+    error = StatusUnreliableRoseLight,
+    info = StatusInitializingSkyLight,
+    muted = StatusUnavailableSlateLight,
+    northMarker = NorthIndicatorRedLight
+)
+
+private val NightRedSemanticColors = ArcSemanticColors(
+    success = NightRedPrimary,
+    warning = NightRedSecondary,
+    error = NightRedPrimary,
+    info = NightRedOnSurface,
+    muted = NightRedOnSurfaceVariant,
+    northMarker = NightRedPrimary
+)
+
+val LocalArcSemanticColors = staticCompositionLocalOf { DarkSemanticColors }
+
+val MaterialTheme.arcSemanticColors: ArcSemanticColors
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalArcSemanticColors.current
 
 val ArcShapes = Shapes(
     small = RoundedCornerShape(10.dp),
@@ -33,6 +88,7 @@ fun ArcCompassTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val lowRam = remember(context) { isLowPerformanceDevice(context) }
     val systemDark = isSystemInDarkTheme()
     val useDark = when (settings.themeMode) {
@@ -51,28 +107,37 @@ fun ArcCompassTheme(
         else -> buildLightScheme(settings.accentPreset, settings.highContrastEnabled)
     }
 
-    val typography = if (settings.largeReadoutsEnabled) {
-        ArcTypography.copy(
-            displaySmall = ArcTypography.displaySmall.copy(
-                fontSize = ArcTypography.displaySmall.fontSize * 1.12f
-            ),
-            headlineSmall = ArcTypography.headlineSmall.copy(
-                fontSize = ArcTypography.headlineSmall.fontSize * 1.1f
-            ),
-            bodyLarge = ArcTypography.bodyLarge.copy(
-                fontSize = ArcTypography.bodyLarge.fontSize * 1.08f
-            ),
-            bodyMedium = ArcTypography.bodyMedium.copy(
-                fontSize = ArcTypography.bodyMedium.fontSize * 1.08f
-            )
-        )
-    } else {
-        ArcTypography
+    val effectiveDark = colorScheme.background.luminance() < 0.5f
+    val semanticColors = when {
+        settings.redScreenFilterEnabled -> NightRedSemanticColors
+        effectiveDark -> DarkSemanticColors
+        else -> LightSemanticColors
+    }
+
+    if (!view.isInEditMode) {
+        SideEffect {
+            val activity = context.findActivity()
+            if (activity != null) {
+                val controller = WindowCompat.getInsetsController(activity.window, view)
+                controller.isAppearanceLightStatusBars = !effectiveDark
+                controller.isAppearanceLightNavigationBars = !effectiveDark
+            }
+        }
+    }
+
+    val typography = remember(settings.largeReadoutsEnabled) {
+        buildArcTypography(largeReadouts = settings.largeReadoutsEnabled)
+    }
+    val textRoles = remember(settings.largeReadoutsEnabled) {
+        buildArcTextRoles(largeReadouts = settings.largeReadoutsEnabled)
     }
 
     CompositionLocalProvider(
         LocalArcSettings provides settings,
-        LocalLowRamDevice provides lowRam
+        LocalLowRamDevice provides lowRam,
+        LocalArcTextRoles provides textRoles,
+        LocalArcSemanticColors provides semanticColors,
+        LocalContentColor provides colorScheme.onBackground
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
@@ -81,6 +146,12 @@ fun ArcCompassTheme(
             content = content
         )
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private fun buildDarkScheme(preset: AccentPreset, highContrast: Boolean): ColorScheme {
@@ -108,14 +179,17 @@ private fun buildDarkScheme(preset: AccentPreset, highContrast: Boolean): ColorS
         onSecondary = onPrimary,
         secondaryContainer = ArcCharcoalSurfaceVariant,
         onSecondaryContainer = ArcCharcoalOnSurface,
-        tertiary = ArcCharcoalOnSurfaceVariant,
+        tertiary = ArcCharcoalTertiary,
         background = ArcCharcoalBackground,
         onBackground = ArcCharcoalOnSurface,
         surface = ArcCharcoalSurface,
         onSurface = ArcCharcoalOnSurface,
         surfaceVariant = ArcCharcoalSurfaceVariant,
         onSurfaceVariant = ArcCharcoalOnSurfaceVariant,
-        outline = ArcCharcoalOutline
+        outline = ArcCharcoalOutline,
+        outlineVariant = ArcCharcoalTertiary,
+        error = ArcDarkError,
+        onError = ArcDarkOnError
     )
     return if (highContrast) applyHighContrast(base, dark = true) else base
 }
@@ -145,14 +219,17 @@ private fun buildLightScheme(preset: AccentPreset, highContrast: Boolean): Color
         onSecondary = onPrimary,
         secondaryContainer = ArcAlabasterSurfaceVariant,
         onSecondaryContainer = ArcAlabasterOnSurface,
-        tertiary = ArcAlabasterOnSurfaceVariant,
+        tertiary = ArcAlabasterTertiary,
         background = ArcAlabasterBackground,
         onBackground = ArcAlabasterOnSurface,
         surface = ArcAlabasterSurface,
         onSurface = ArcAlabasterOnSurface,
         surfaceVariant = ArcAlabasterSurfaceVariant,
         onSurfaceVariant = ArcAlabasterOnSurfaceVariant,
-        outline = ArcAlabasterOutline
+        outline = ArcAlabasterOutline,
+        outlineVariant = ArcAlabasterTertiary,
+        error = ArcLightError,
+        onError = ArcLightOnError
     )
     return if (highContrast) applyHighContrast(base, dark = false) else base
 }
@@ -197,7 +274,10 @@ private fun nightVisionRedColorScheme(): ColorScheme = darkColorScheme(
     onSurface = NightRedOnSurface,
     surfaceVariant = NightRedSurfaceVariant,
     onSurfaceVariant = NightRedOnSurfaceVariant,
-    outline = NightRedOutline
+    outline = NightRedOutline,
+    outlineVariant = NightRedOnSurfaceVariant,
+    error = NightRedPrimary,
+    onError = NightRedOnPrimary
 )
 
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

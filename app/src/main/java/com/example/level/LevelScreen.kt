@@ -44,10 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -71,10 +73,8 @@ import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassPill
 import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.SpaceGroteskFontFamily
-import com.example.ui.theme.StatusAvailableGreen
-import com.example.ui.theme.StatusWarningAmber
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
@@ -83,6 +83,65 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/**
+ * Computes progressive circular -> rounded-triangle morph factor [0f..1f]
+ * from normalized radial distance [0f..1f+] inside the Level inclinometer lens.
+ */
+fun computeLevelBubbleMorphFraction(normDistance: Float): Float {
+    val t = ((normDistance - 0.10f) / 0.78f).coerceIn(0f, 1f)
+    // Smoothstep curve for organic easing near both center and outer rim
+    return t * t * (3f - 2f * t)
+}
+
+/**
+ * Pure radial profile for the morphing Level orientation bubble at [thetaRad].
+ */
+fun levelBubbleRadiusAt(
+    baseRadius: Float,
+    morphFraction: Float,
+    thetaRad: Float,
+    tiltDirectionRad: Float
+): Float {
+    val clampedMorph = morphFraction.coerceIn(0f, 1f)
+    val delta = thetaRad - tiltDirectionRad
+    val roundedTriangle = cos(3f * delta)
+    val directionalBias = cos(delta)
+    return baseRadius * (
+        1f +
+            clampedMorph * 0.23f * roundedTriangle +
+            clampedMorph * 0.05f * directionalBias
+        )
+}
+
+/**
+ * Builds the dynamically morphing Level orientation bubble path:
+ * - At center (morphFraction = 0): exact circle.
+ * - Approaching circumference (morphFraction -> 1): smoothly rounded triangle pointing along [tiltDirectionRad].
+ */
+fun buildMorphingLevelBubblePath(
+    center: Offset,
+    baseRadius: Float,
+    morphFraction: Float,
+    tiltDirectionRad: Float
+): Path {
+    val steps = 64
+    return Path().apply {
+        for (i in 0..steps) {
+            val theta = ((2.0 * PI * i) / steps).toFloat()
+            val r = levelBubbleRadiusAt(
+                baseRadius = baseRadius,
+                morphFraction = morphFraction,
+                thetaRad = theta,
+                tiltDirectionRad = tiltDirectionRad
+            )
+            val x = center.x + r * cos(theta)
+            val y = center.y + r * sin(theta)
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+        }
+        close()
+    }
+}
 
 @Composable
 fun LevelScreen(
@@ -111,7 +170,7 @@ fun LevelScreen(
     val animSpec = if (settings.reducedMotionEnabled) {
         snap<Float>()
     } else {
-        spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
     }
 
     val animRoll by animateFloatAsState(targetValue = roll, animationSpec = animSpec, label = "level_roll")
@@ -263,7 +322,7 @@ private fun LevelHeaderBar(
     levelState: LevelTiltState,
     nightFilterActive: Boolean
 ) {
-    val levelColor = if (nightFilterActive) MaterialTheme.colorScheme.primary else StatusAvailableGreen
+    val levelColor = if (nightFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.arcSemanticColors.success
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -274,8 +333,8 @@ private fun LevelHeaderBar(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Surface Level",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.arcTextRoles.heading,
+                color = MaterialTheme.colorScheme.onBackground
             )
             Text(
                 text = if (levelState.isSupported) {
@@ -283,7 +342,7 @@ private fun LevelHeaderBar(
                 } else {
                     "Orientation sensor unavailable"
                 },
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.arcTextRoles.technical,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("level_sensor_status")
             )
@@ -308,7 +367,7 @@ private fun LevelHeaderBar(
                     )
                     Text(
                         text = "LEVEL 0°",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.arcTextRoles.technical,
                         color = levelColor,
                         fontWeight = FontWeight.Bold
                     )
@@ -333,23 +392,23 @@ private fun PrecisionGlassInclinometerInstrument(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val levelColor = if (nightFilterActive) colorScheme.primary else StatusAvailableGreen
+    val levelColor = if (nightFilterActive) colorScheme.primary else MaterialTheme.arcSemanticColors.success
     val activeAccent = if (isFlatLevel) levelColor else colorScheme.primary
     val primaryInk = colorScheme.onSurface
     val mutedInk = colorScheme.onSurfaceVariant
     val outlineColor = colorScheme.outline
     val textMeasurer = rememberTextMeasurer()
+    val techStyle = MaterialTheme.arcTextRoles.technical
 
-    val ringDegreeStyle = remember(mutedInk) {
-        TextStyle(
-            fontFamily = JetBrainsMonoFontFamily,
+    val ringDegreeStyle = remember(mutedInk, techStyle) {
+        techStyle.copy(
             fontWeight = FontWeight.SemiBold,
             fontSize = 10.sp,
             color = mutedInk.copy(alpha = 0.85f)
         )
     }
 
-    // Smooth visual tilt direction angle (degrees, 0 = top 12 o'clock)
+    // Visual tilt vector direction (degrees, 0 = top 12 o'clock)
     val tiltMagnitude = hypot(rollDegrees.toDouble(), pitchDegrees.toDouble()).toFloat()
     val vectorAngleRad = atan2(-pitchDegrees.toDouble(), rollDegrees.toDouble())
     val vectorClockDeg = Math.toDegrees(vectorAngleRad).toFloat() + 90f
@@ -383,7 +442,7 @@ private fun PrecisionGlassInclinometerInstrument(
                 val maxR = size.minDimension / 2f * 0.96f
                 val center = Offset(cx, cy)
 
-                // Deep frosted lens interior with subtle radial depth
+                // Deep frosted lens interior with radial depth
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -414,7 +473,7 @@ private fun PrecisionGlassInclinometerInstrument(
                     center = center
                 )
 
-                // Luminous inclination sweep arc around outer ring (inspired by high-precision inclinometer)
+                // Inclination sweep arc around outer ring
                 val ringR = maxR * 0.80f
                 val ringStroke = 14.dp.toPx()
                 val arcSpan = if (isFlatLevel) {
@@ -424,7 +483,6 @@ private fun PrecisionGlassInclinometerInstrument(
                 }
                 val sweepStartDeg = if (isFlatLevel) 0f else (vectorClockDeg - 90f) - arcSpan / 2f
 
-                // Track ring behind sweep
                 drawCircle(
                     color = outlineColor.copy(alpha = 0.18f),
                     radius = ringR,
@@ -475,9 +533,9 @@ private fun PrecisionGlassInclinometerInstrument(
                             cy + (innerTickR * sin(rad)).toFloat()
                         ),
                         strokeWidth = when {
-                            isMajor -> 2.1.dp.toPx()
-                            isMedium -> 1.2.dp.toPx()
-                            else -> 0.7.dp.toPx()
+                            isMajor -> 2.4.dp.toPx()
+                            isMedium -> 1.3.dp.toPx()
+                            else -> 0.75.dp.toPx()
                         },
                         cap = StrokeCap.Round
                     )
@@ -530,36 +588,69 @@ private fun PrecisionGlassInclinometerInstrument(
                     style = Stroke(width = 1.5.dp.toPx())
                 )
 
-                // Animated floating orientation indicator orb (clamped gracefully inside lens)
+                // Dynamic Morphing Orientation Bubble:
+                // Circular at center, progressively morphs into a rounded triangle pointing toward tilt direction.
                 val normX = (rollDegrees / 45f).coerceIn(-1f, 1f)
                 val normY = (-pitchDegrees / 45f).coerceIn(-1f, 1f)
-                val normDist = hypot(normX.toDouble(), normY.toDouble()).toFloat()
-                val clampedScale = if (normDist > 1f) 1f / normDist else 1f
-                val travelR = maxR * 0.64f
-                val orbCenter = Offset(
+                val rawNormDist = hypot(normX.toDouble(), normY.toDouble()).toFloat()
+                val clampedScale = if (rawNormDist > 1f) 1f / rawNormDist else 1f
+                val effectiveNormDist = rawNormDist.coerceIn(0f, 1f)
+                val travelR = maxR * 0.61f
+                val bubbleCenter = Offset(
                     x = cx + normX * clampedScale * travelR,
                     y = cy + normY * clampedScale * travelR
                 )
-                val orbR = maxR * 0.068f
+                val bubbleR = maxR * 0.082f
+                val morphFraction = computeLevelBubbleMorphFraction(effectiveNormDist)
+                val tiltDirectionRad = atan2(normY, normX)
 
+                val bubblePath = buildMorphingLevelBubblePath(
+                    center = bubbleCenter,
+                    baseRadius = bubbleR,
+                    morphFraction = morphFraction,
+                    tiltDirectionRad = tiltDirectionRad
+                )
+
+                // Soften bubble fill when near dead-center so central tilt numerals always stay crisp
+                val centerProximityFade = (effectiveNormDist / 0.22f).coerceIn(0f, 1f)
+                val bubbleFillAlphaTop = 0.36f + centerProximityFade * 0.54f
+                val bubbleFillAlphaBottom = 0.24f + centerProximityFade * 0.50f
+
+                // Ambient glow halo around morphing orientation bubble
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(activeAccent.copy(alpha = 0.42f), Color.Transparent),
-                        center = orbCenter,
-                        radius = orbR * 2.1f
+                        colors = listOf(activeAccent.copy(alpha = 0.32f), Color.Transparent),
+                        center = bubbleCenter,
+                        radius = bubbleR * 2.2f
                     ),
-                    radius = orbR * 2.1f,
-                    center = orbCenter
+                    radius = bubbleR * 2.2f,
+                    center = bubbleCenter
                 )
-                drawCircle(
-                    color = activeAccent,
-                    radius = orbR,
-                    center = orbCenter
+                drawPath(
+                    path = bubblePath,
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            activeAccent.copy(alpha = bubbleFillAlphaTop),
+                            activeAccent.copy(alpha = bubbleFillAlphaBottom)
+                        ),
+                        center = Offset(
+                            bubbleCenter.x - bubbleR * 0.2f,
+                            bubbleCenter.y - bubbleR * 0.2f
+                        ),
+                        radius = bubbleR * 1.4f
+                    )
                 )
+                drawPath(
+                    path = bubblePath,
+                    color = if (nightFilterActive) activeAccent else activeAccent.copy(alpha = 0.85f),
+                    style = Stroke(width = 1.6.dp.toPx())
+                )
+                // Inner glass highlight dot
                 drawCircle(
-                    color = Color.White.copy(alpha = if (nightFilterActive) 0.28f else 0.68f),
-                    radius = orbR * 0.34f,
-                    center = Offset(orbCenter.x - orbR * 0.28f, orbCenter.y - orbR * 0.28f)
+                    color = if (nightFilterActive) activeAccent.copy(alpha = 0.35f)
+                    else Color.White.copy(alpha = 0.45f),
+                    radius = bubbleR * 0.28f,
+                    center = Offset(bubbleCenter.x - bubbleR * 0.24f, bubbleCenter.y - bubbleR * 0.24f)
                 )
             }
 
@@ -577,18 +668,15 @@ private fun PrecisionGlassInclinometerInstrument(
                 }
                 Text(
                     text = formattedTilt,
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontFamily = SpaceGroteskFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = if (largeReadouts) 54.sp else 48.sp,
-                        letterSpacing = (-1.5).sp
+                    style = MaterialTheme.arcTextRoles.display.copy(
+                        fontSize = if (largeReadouts) 54.sp else 48.sp
                     ),
-                    color = if (isFlatLevel) activeAccent else primaryInk,
+                    color = primaryInk,
                     modifier = Modifier.testTag("level_total_tilt_value")
                 )
                 Text(
                     text = if (hasCustomReference) "REL ZERO • TAP" else if (isFlatLevel) "LEVEL" else "TILT",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.arcTextRoles.technical,
                     fontWeight = FontWeight.Bold,
                     color = activeAccent
                 )
@@ -603,7 +691,8 @@ private fun PrecisionGlassInclinometerInstrument(
             ) {
                 Text(
                     text = "R ${formatAngle(rollDegrees, showDecimals)}  •  P ${formatAngle(pitchDegrees, showDecimals)}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                    style = MaterialTheme.arcTextRoles.technical,
+                    fontWeight = FontWeight.Medium,
                     color = primaryInk,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                 )
@@ -656,7 +745,12 @@ private fun FloatingReferenceControlDeck(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = if (hasCustomReference) "Re-zero Reference" else "Zero Current Angle",
-                    style = MaterialTheme.typography.labelLarge
+                    style = MaterialTheme.arcTextRoles.button,
+                    color = if (hasCustomReference) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
                 )
             }
         }
@@ -681,7 +775,11 @@ private fun FloatingReferenceControlDeck(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("True 0°", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = "True 0°",
+                        style = MaterialTheme.arcTextRoles.button,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
@@ -698,7 +796,7 @@ private fun PrecisionLevelTelemetryConsole(
     settings: ArcCompassSettings
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val levelColor = if (settings.redScreenFilterEnabled) colorScheme.primary else StatusAvailableGreen
+    val levelColor = if (settings.redScreenFilterEnabled) colorScheme.primary else MaterialTheme.arcSemanticColors.success
     val rollLevel = abs(roll) <= 0.6f
 
     GlassCard(
@@ -709,22 +807,24 @@ private fun PrecisionLevelTelemetryConsole(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            VernierScaleRow(
+            ExpressiveDisplayOnlySliderRow(
                 title = "Horizontal Inclination (Roll)",
                 angleDegrees = animRoll,
                 isLevel = rollLevel,
                 levelColor = levelColor,
-                showDecimals = settings.showLevelDecimals
+                showDecimals = settings.showLevelDecimals,
+                testTag = "level_roll_slider"
             )
 
-            VernierScaleRow(
+            ExpressiveDisplayOnlySliderRow(
                 title = "Vertical Inclination (Plumb)",
                 angleDegrees = animPlumb,
                 isLevel = levelState.isVerticalLevel,
                 levelColor = levelColor,
-                showDecimals = settings.showLevelDecimals
+                showDecimals = settings.showLevelDecimals,
+                testTag = "level_plumb_slider"
             )
 
             HorizontalDivider(color = colorScheme.outline.copy(alpha = 0.22f))
@@ -753,19 +853,31 @@ private fun PrecisionLevelTelemetryConsole(
     }
 }
 
+/**
+ * Material 3 Expressive measurement slider — strictly display-only (non-interactive / non-draggable).
+ * Features a thick rounded capsule track, center 0° reference notch, active directional fill,
+ * smooth moving pill indicator, and +/- directional endpoints.
+ */
 @Composable
-private fun VernierScaleRow(
+private fun ExpressiveDisplayOnlySliderRow(
     title: String,
     angleDegrees: Float,
     isLevel: Boolean,
     levelColor: Color,
-    showDecimals: Boolean
+    showDecimals: Boolean,
+    testTag: String
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val indicatorColor = if (isLevel) levelColor else colorScheme.primary
-    val outlineColor = colorScheme.outline
+    val trackBg = colorScheme.surfaceVariant.copy(alpha = 0.72f)
+    val trackBorder = colorScheme.outline.copy(alpha = 0.32f)
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(testTag),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -773,56 +885,115 @@ private fun VernierScaleRow(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.arcTextRoles.settings,
+                fontSize = 13.5.sp,
                 color = colorScheme.onSurfaceVariant
             )
             Text(
                 text = formatAngle(angleDegrees, showDecimals),
-                style = MaterialTheme.typography.titleMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                style = MaterialTheme.arcTextRoles.measurement,
                 fontWeight = FontWeight.Bold,
                 color = indicatorColor
             )
         }
 
-        // Precision vernier reticle bar (replaces generic progress bar)
+        // Strictly display-only M3 Expressive capsule track + moving indicator pill
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(22.dp)
+                .height(30.dp)
         ) {
             val midY = size.height / 2f
             val centerX = size.width / 2f
+            val trackH = 14.dp.toPx()
+            val trackTop = midY - trackH / 2f
+            val trackRadius = trackH / 2f
+            val travelHalfW = (size.width / 2f) - 10.dp.toPx()
 
-            drawLine(
-                color = outlineColor.copy(alpha = 0.30f),
-                start = Offset(0f, midY),
-                end = Offset(size.width, midY),
-                strokeWidth = 1.2.dp.toPx()
+            // Outer rounded track capsule
+            drawRoundRect(
+                color = trackBg,
+                topLeft = Offset(0f, trackTop),
+                size = Size(size.width, trackH),
+                cornerRadius = CornerRadius(trackRadius, trackRadius)
+            )
+            drawRoundRect(
+                color = trackBorder,
+                topLeft = Offset(0f, trackTop),
+                size = Size(size.width, trackH),
+                cornerRadius = CornerRadius(trackRadius, trackRadius),
+                style = Stroke(width = 1.dp.toPx())
             )
 
-            // 13 graduated vernier ticks across -45°..+45°
-            for (step in -6..6) {
-                val tx = centerX + (step / 6f) * (size.width * 0.47f)
-                val tickH = if (step == 0) 9.dp.toPx() else if (step % 3 == 0) 6.dp.toPx() else 3.5.dp.toPx()
-                drawLine(
-                    color = if (step == 0) indicatorColor.copy(alpha = 0.7f) else outlineColor.copy(alpha = 0.45f),
-                    start = Offset(tx, midY - tickH),
-                    end = Offset(tx, midY + tickH),
-                    strokeWidth = if (step == 0) 1.6.dp.toPx() else 1.dp.toPx()
-                )
-            }
-
+            // Active Expressive fill extending from center 0° reference to current angle position
             val norm = (angleDegrees / 45f).coerceIn(-1f, 1f)
-            val pipX = centerX + norm * (size.width * 0.47f)
+            val thumbX = centerX + norm * travelHalfW
+            val fillLeft = minOf(centerX, thumbX)
+            val fillWidth = abs(thumbX - centerX).coerceAtLeast(4.dp.toPx())
+            drawRoundRect(
+                color = indicatorColor.copy(alpha = 0.34f),
+                topLeft = Offset(fillLeft, trackTop + 2.dp.toPx()),
+                size = Size(fillWidth, trackH - 4.dp.toPx()),
+                cornerRadius = CornerRadius(trackRadius, trackRadius)
+            )
+
+            // Center 0° reference notch
+            drawLine(
+                color = if (isLevel) indicatorColor else colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                start = Offset(centerX, trackTop - 3.dp.toPx()),
+                end = Offset(centerX, trackTop + trackH + 3.dp.toPx()),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+
+            // Subtle M3 Expressive stop dots at -45° / +45°
             drawCircle(
-                color = indicatorColor.copy(alpha = 0.28f),
-                radius = 9.dp.toPx(),
-                center = Offset(pipX, midY)
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                radius = 2.2.dp.toPx(),
+                center = Offset(centerX - travelHalfW, midY)
             )
             drawCircle(
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                radius = 2.2.dp.toPx(),
+                center = Offset(centerX + travelHalfW, midY)
+            )
+
+            // Moving M3 Expressive vertical pill handle (display-only)
+            val thumbW = 7.dp.toPx()
+            val thumbH = 24.dp.toPx()
+            drawRoundRect(
+                color = indicatorColor.copy(alpha = 0.25f),
+                topLeft = Offset(thumbX - thumbW * 0.85f, midY - thumbH * 0.6f),
+                size = Size(thumbW * 1.7f, thumbH * 1.2f),
+                cornerRadius = CornerRadius(thumbW, thumbW)
+            )
+            drawRoundRect(
                 color = indicatorColor,
-                radius = 4.5.dp.toPx(),
-                center = Offset(pipX, midY)
+                topLeft = Offset(thumbX - thumbW / 2f, midY - thumbH / 2f),
+                size = Size(thumbW, thumbH),
+                cornerRadius = CornerRadius(thumbW / 2f, thumbW / 2f)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "-45°",
+                style = MaterialTheme.arcTextRoles.technical,
+                color = colorScheme.tertiary
+            )
+            Text(
+                text = "0°",
+                style = MaterialTheme.arcTextRoles.technical,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isLevel) indicatorColor else colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "+45°",
+                style = MaterialTheme.arcTextRoles.technical,
+                color = colorScheme.tertiary
             )
         }
     }
@@ -844,22 +1015,24 @@ private fun TelemetrySubMetric(
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.arcTextRoles.technical,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = JetBrainsMonoFontFamily),
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.arcTextRoles.measurement,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }
 
 @Composable
 private fun UnsupportedLevelCard() {
+    val warningColor = MaterialTheme.arcSemanticColors.warning
     GlassCard(
         tier = GlassTier.CARD,
-        borderColor = StatusWarningAmber.copy(alpha = 0.55f),
+        borderColor = warningColor.copy(alpha = 0.55f),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("unsupported_level_card")
@@ -875,13 +1048,18 @@ private fun UnsupportedLevelCard() {
                 Icon(
                     imageVector = Icons.Outlined.WarningAmber,
                     contentDescription = null,
-                    tint = StatusWarningAmber
+                    tint = warningColor
                 )
-                Text("Surface Level Unavailable", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Surface Level Unavailable",
+                    style = MaterialTheme.arcTextRoles.heading,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
             Text(
                 text = "This device does not expose a Gravity, Accelerometer, or Rotation Vector sensor required to measure tilt.",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.arcTextRoles.description,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

@@ -13,12 +13,15 @@ import com.example.sensor.SensorRepository
  */
 class ArcCompassApplication : Application() {
 
-    val sensorRepository: SensorRepository by lazy {
-        SensorRepository(applicationContext)
-    }
-
     val settingsRepository: SettingsRepository by lazy {
         SettingsRepository(applicationContext)
+    }
+
+    val sensorRepository: SensorRepository by lazy {
+        SensorRepository(
+            context = applicationContext,
+            settingsRepository = settingsRepository
+        )
     }
 
     private val database: ArcCompassDatabase by lazy {

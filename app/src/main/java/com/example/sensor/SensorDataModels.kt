@@ -1,6 +1,7 @@
 package com.example.sensor
 
 import android.hardware.Sensor
+import com.example.data.CompassSensorMode
 
 /**
  * The 8 core hardware sensor types evaluated by the ArcCompass Sensor Detection Engine.
@@ -114,9 +115,17 @@ data class DeviceHardwareInfo(
     val totalDetectedSensors: Int
 )
 
-enum class CompassSource(val label: String) {
+enum class CompassSource(val label: String, val isRelativeFallback: Boolean = false) {
     ROTATION_VECTOR("Rotation Vector (9-axis/6-axis fused)"),
     ACCELEROMETER_AND_MAGNETOMETER("Accelerometer + Magnetometer fallback"),
+    GAME_ROTATION_VECTOR_RELATIVE(
+        label = "Game Rotation Vector (Relative only — no North)",
+        isRelativeFallback = true
+    ),
+    GYROSCOPE_RELATIVE(
+        label = "Gyroscope-assisted (Drifts — no absolute North)",
+        isRelativeFallback = true
+    ),
     UNSUPPORTED("Unsupported — missing required magnetic hardware")
 }
 
@@ -172,6 +181,7 @@ data class LiveTelemetrySnapshot(
     val pressureHpa: Float? = null,
     val barometricAltitudeEstimateMeters: Double? = null,
     val significantMotionTriggeredCount: Int = 0,
+    val sensorUpdateTimestamps: Map<RequiredSensorType, Long> = emptyMap(),
     val lastUpdatedMillis: Long = 0L
 ) {
     override fun equals(other: Any?): Boolean {
@@ -187,6 +197,7 @@ data class LiveTelemetrySnapshot(
             pressureHpa == other.pressureHpa &&
             barometricAltitudeEstimateMeters == other.barometricAltitudeEstimateMeters &&
             significantMotionTriggeredCount == other.significantMotionTriggeredCount &&
+            sensorUpdateTimestamps == other.sensorUpdateTimestamps &&
             lastUpdatedMillis == other.lastUpdatedMillis
     }
 
@@ -201,6 +212,7 @@ data class LiveTelemetrySnapshot(
         result = 31 * result + (pressureHpa?.hashCode() ?: 0)
         result = 31 * result + (barometricAltitudeEstimateMeters?.hashCode() ?: 0)
         result = 31 * result + significantMotionTriggeredCount
+        result = 31 * result + sensorUpdateTimestamps.hashCode()
         result = 31 * result + lastUpdatedMillis.hashCode()
         return result
     }
@@ -236,10 +248,15 @@ data class CompassHeadingState(
     val trueAzimuthDegrees: Float? = null,
     val declinationDegrees: Float? = null,
     val pitchDegrees: Float? = null,
-    val rollDegrees: Float? = null
+    val rollDegrees: Float? = null,
+    val recoveryLimitationNote: String? = null
 ) {
+    val isRelativeFallback: Boolean
+        get() = source.isRelativeFallback
+
     val hasReliableOrientation: Boolean
         get() = isSupported &&
+            !source.isRelativeFallback &&
             magneticAzimuthDegrees != null &&
             accuracy != SensorAccuracyLevel.UNRELIABLE &&
             accuracy != SensorAccuracyLevel.NO_CONTACT
@@ -265,9 +282,70 @@ data class LevelTiltState(
     val hasCustomReference: Boolean = false
 )
 
-/**
- * Future-ready contract for Milestone 3 (Compass Engine) and ArcLevel.
- */
+enum class SensorStreamHealth(val label: String) {
+    HEALTHY("Responding normally"),
+    STATIONARY("Steady / stationary"),
+    FROZEN("Unchanged despite motion"),
+    INVALID_VALUES("Invalid or all-zero data"),
+    UNRESPONSIVE("No samples received"),
+    UNAVAILABLE("Not present on device")
+}
+
+enum class CompassAnomalyReason(val title: String, val summary: String) {
+    INVALID_SENSOR_DATA(
+        title = "Invalid compass sensor readings",
+        summary = "Non-finite or zeroed sensor output was detected. Run an interactive sensor check to verify hardware response or switch to a healthy fallback."
+    ),
+    FROZEN_DURING_MOTION(
+        title = "Compass readings appear frozen",
+        summary = "Motion was detected while the compass sensor stayed bit-identical. Confirm to run a guided movement check."
+    ),
+    SENSOR_TIMEOUT(
+        title = "Compass sensor not responding",
+        summary = "Expected orientation samples were not received while observing. Run a quick diagnostic check or inspect alternatives."
+    )
+}
+
+data class SensorDiagnosticOutcome(
+    val sensorType: RequiredSensorType,
+    val health: SensorStreamHealth,
+    val sampleCount: Int,
+    val maxObservedDelta: Float
+)
+
+enum class InteractiveCheckPhase {
+    IDLE,
+    AWAITING_CONFIRMATION,
+    RUNNING,
+    COMPLETED
+}
+
+data class InfoBannerNotice(
+    val eventKey: String,
+    val title: String,
+    val message: String,
+    val createdAtMillis: Long
+)
+
+data class CompassDiagnosticsState(
+    val suspectedAnomaly: CompassAnomalyReason? = null,
+    val bannerDismissed: Boolean = false,
+    val checkPhase: InteractiveCheckPhase = InteractiveCheckPhase.IDLE,
+    val checkProgressFraction: Float = 0f,
+    val motionDetectedDuringCheck: Boolean = false,
+    val sensorOutcomes: List<SensorDiagnosticOutcome> = emptyList(),
+    val diagnosticSummary: String? = null,
+    val activeRecoverySource: CompassSource? = null,
+    val recoveryDisclosure: String? = null,
+    val infoBanner: InfoBannerNotice? = null,
+    val magneticInterferenceActive: Boolean = false,
+    val magneticInterferenceDismissed: Boolean = false,
+    val magneticInterferenceMicroTesla: Float? = null,
+    val verticalOrientationWarningActive: Boolean = false,
+    val verticalOrientationDismissed: Boolean = false,
+    val activeSensorMode: CompassSensorMode = CompassSensorMode.AUTO_DEFAULT
+)
+
 data class CompassReadinessState(
     val isSupported: Boolean,
     val source: CompassSource,

@@ -83,6 +83,7 @@ fun ArcCompassAppRoot(
     val engineState by viewModel.engineState.collectAsStateWithLifecycle()
     val headingState by viewModel.headingState.collectAsStateWithLifecycle()
     val levelState by viewModel.levelState.collectAsStateWithLifecycle()
+    val compassDiagnosticsState by viewModel.compassDiagnosticsState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val savedPlaces by viewModel.savedPlaces.collectAsStateWithLifecycle()
 
@@ -104,24 +105,30 @@ fun ArcCompassAppRoot(
 
     var currentTab by rememberSaveable { mutableStateOf(MainTab.COMPASS) }
     var showSensorDiagnostics by rememberSaveable { mutableStateOf(false) }
+    var openCalibrationInSettings by rememberSaveable { mutableStateOf(false) }
     var inFindMode by remember { mutableStateOf(false) }
 
     ArcCompassTheme(settings = settings) {
-        if (showSensorDiagnostics) {
-            SensorDiagnosticsScreen(
-                onNavigateBack = { showSensorDiagnostics = false },
-                manageLifecycle = false
-            )
-            return@ArcCompassTheme
-        }
-
-        if (!inFindMode && currentTab != MainTab.COMPASS) {
-            BackHandler {
-                currentTab = MainTab.COMPASS
+        androidx.compose.material3.Surface(
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (showSensorDiagnostics) {
+                SensorDiagnosticsScreen(
+                    onNavigateBack = { showSensorDiagnostics = false },
+                    manageLifecycle = false
+                )
+                return@Surface
             }
-        }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+            if (!inFindMode && currentTab != MainTab.COMPASS) {
+                BackHandler {
+                    currentTab = MainTab.COMPASS
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
             FrostedAmbientBackdrop()
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -167,11 +174,18 @@ fun ArcCompassAppRoot(
                                 engineState = engineState,
                                 headingState = headingState,
                                 levelState = levelState,
+                                compassDiagnosticsState = compassDiagnosticsState,
                                 settings = settings,
                                 savedPlaces = savedPlaces,
                                 bottomNavClearance = bottomNavClearance,
                                 viewModel = viewModel,
+                                openCalibrationInSettings = openCalibrationInSettings,
+                                onCalibrationInSettingsConsumed = { openCalibrationInSettings = false },
                                 onNavigateToSettings = { currentTab = MainTab.SETTINGS },
+                                onOpenCalibrationSettings = {
+                                    openCalibrationInSettings = true
+                                    currentTab = MainTab.SETTINGS
+                                },
                                 onOpenSensorDiagnostics = { showSensorDiagnostics = true },
                                 onFindModeChanged = { inFindMode = it }
                             )
@@ -199,11 +213,18 @@ fun ArcCompassAppRoot(
                                 engineState = engineState,
                                 headingState = headingState,
                                 levelState = levelState,
+                                compassDiagnosticsState = compassDiagnosticsState,
                                 settings = settings,
                                 savedPlaces = savedPlaces,
                                 bottomNavClearance = bottomNavClearance,
                                 viewModel = viewModel,
+                                openCalibrationInSettings = openCalibrationInSettings,
+                                onCalibrationInSettingsConsumed = { openCalibrationInSettings = false },
                                 onNavigateToSettings = { currentTab = MainTab.SETTINGS },
+                                onOpenCalibrationSettings = {
+                                    openCalibrationInSettings = true
+                                    currentTab = MainTab.SETTINGS
+                                },
                                 onOpenSensorDiagnostics = { showSensorDiagnostics = true },
                                 onFindModeChanged = { inFindMode = it }
                             )
@@ -220,6 +241,7 @@ fun ArcCompassAppRoot(
                 }
             }
         }
+        }
     }
 }
 
@@ -229,11 +251,15 @@ private fun TabDestinationContent(
     engineState: com.example.sensor.SensorEngineState,
     headingState: com.example.sensor.CompassHeadingState,
     levelState: com.example.sensor.LevelTiltState,
+    compassDiagnosticsState: com.example.sensor.CompassDiagnosticsState,
     settings: com.example.data.ArcCompassSettings,
     savedPlaces: List<SavedPlaceEntity>,
     bottomNavClearance: Dp,
     viewModel: ArcCompassViewModel,
+    openCalibrationInSettings: Boolean,
+    onCalibrationInSettingsConsumed: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onOpenCalibrationSettings: () -> Unit,
     onOpenSensorDiagnostics: () -> Unit,
     onFindModeChanged: (Boolean) -> Unit
 ) {
@@ -255,6 +281,18 @@ private fun TabDestinationContent(
                 onRescanHardware = viewModel::rescanHardware,
                 onSavePlace = viewModel::saveCurrentPlace,
                 onDeletePlace = viewModel::deleteSavedPlace,
+                compassDiagnosticsState = compassDiagnosticsState,
+                onToggleRawMode = viewModel::setRawMode,
+                onRequestDiagnosticCheck = viewModel::requestCompassDiagnosticCheck,
+                onStartDiagnosticCheck = viewModel::startCompassDiagnosticCheck,
+                onCancelDiagnosticCheck = viewModel::cancelCompassDiagnosticConfirmation,
+                onDismissAnomalyBanner = viewModel::dismissCompassAnomalyBanner,
+                onDismissInfoBanner = viewModel::dismissInfoBanner,
+                onDismissMagneticBanner = viewModel::dismissMagneticInterferenceBanner,
+                onDismissOrientationBanner = viewModel::dismissVerticalOrientationBanner,
+                onMarkGuidanceSeen = viewModel::markCalibrationGuidanceSeen,
+                onOpenCalibrationSettings = onOpenCalibrationSettings,
+                onResetCompassRecovery = viewModel::resetCompassRecovery,
                 bottomNavClearance = bottomNavClearance
             )
         }
@@ -284,6 +322,9 @@ private fun TabDestinationContent(
                 headingState = headingState,
                 viewModel = viewModel,
                 onOpenSensorDiagnostics = onOpenSensorDiagnostics,
+                compassDiagnosticsState = compassDiagnosticsState,
+                openCalibrationOnLaunch = openCalibrationInSettings,
+                onCalibrationLaunchConsumed = onCalibrationInSettingsConsumed,
                 bottomNavClearance = bottomNavClearance
             )
         }

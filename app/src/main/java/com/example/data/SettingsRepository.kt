@@ -28,6 +28,11 @@ class SettingsRepository(context: Context) {
                 ?: AccentPreset.COOL_BLUE,
             headingFormat = prefs[KEY_HEADING_FORMAT]?.let { safeEnum<HeadingFormat>(it) } ?: HeadingFormat.AZIMUTH,
             showHeadingDecimals = prefs[KEY_HEADING_DECIMALS] ?: false,
+            rawModeEnabled = prefs[KEY_RAW_MODE] ?: false,
+            compassSensorMode = prefs[KEY_COMPASS_SENSOR_MODE]?.let { safeEnum<CompassSensorMode>(it) }
+                ?: CompassSensorMode.AUTO_DEFAULT,
+            hasSeenCalibrationGuidance = prefs[KEY_CALIBRATION_GUIDANCE_SEEN] ?: false,
+            isLoaded = true,
             themeMode = prefs[KEY_THEME_MODE]?.let { safeEnum<AppThemeMode>(it) } ?: AppThemeMode.DARK,
             accentPreset = prefs[KEY_ACCENT_PRESET]?.let { safeEnum<AccentPreset>(it) } ?: AccentPreset.COOL_BLUE,
             dynamicColorEnabled = prefs[KEY_DYNAMIC_COLOR] ?: false,
@@ -51,6 +56,9 @@ class SettingsRepository(context: Context) {
     suspend fun setExpressiveAccentPreset(preset: AccentPreset) = editString(KEY_EXPRESSIVE_ACCENT, preset.name)
     suspend fun setHeadingFormat(format: HeadingFormat) = editString(KEY_HEADING_FORMAT, format.name)
     suspend fun setShowHeadingDecimals(enabled: Boolean) = editBool(KEY_HEADING_DECIMALS, enabled)
+    suspend fun setRawMode(enabled: Boolean) = editBool(KEY_RAW_MODE, enabled)
+    suspend fun setCompassSensorMode(mode: CompassSensorMode) = editString(KEY_COMPASS_SENSOR_MODE, mode.name)
+    suspend fun setHasSeenCalibrationGuidance(seen: Boolean) = editBool(KEY_CALIBRATION_GUIDANCE_SEEN, seen)
     suspend fun setThemeMode(mode: AppThemeMode) = editString(KEY_THEME_MODE, mode.name)
     suspend fun setAccentPreset(preset: AccentPreset) = editString(KEY_ACCENT_PRESET, preset.name)
     suspend fun setDynamicColor(enabled: Boolean) = editBool(KEY_DYNAMIC_COLOR, enabled)
@@ -84,6 +92,9 @@ class SettingsRepository(context: Context) {
         private val KEY_EXPRESSIVE_ACCENT = stringPreferencesKey("expressive_accent_preset")
         private val KEY_HEADING_FORMAT = stringPreferencesKey("heading_format")
         private val KEY_HEADING_DECIMALS = booleanPreferencesKey("heading_decimals")
+        private val KEY_RAW_MODE = booleanPreferencesKey("raw_mode")
+        private val KEY_COMPASS_SENSOR_MODE = stringPreferencesKey("compass_sensor_mode")
+        private val KEY_CALIBRATION_GUIDANCE_SEEN = booleanPreferencesKey("calibration_guidance_seen")
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         private val KEY_ACCENT_PRESET = stringPreferencesKey("accent_preset")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")

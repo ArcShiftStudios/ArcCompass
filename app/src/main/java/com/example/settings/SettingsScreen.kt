@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Vibration
@@ -55,6 +56,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -75,19 +77,24 @@ import com.example.ArcCompassViewModel
 import com.example.BuildConfig
 import com.example.R
 import com.example.compass.CalibrationGuideDialog
+import com.example.compass.CompassInteractiveCheckDialog
 import com.example.data.AccentPreset
 import com.example.data.AppThemeMode
 import com.example.data.ArcCompassSettings
+import com.example.data.CompassSensorMode
 import com.example.data.DialStyle
 import com.example.data.ExpressiveDialShape
 import com.example.data.HeadingFormat
+import com.example.sensor.CompassDiagnosticsState
 import com.example.sensor.CompassHeadingState
 import com.example.sensor.DiagnosticStatus
+import com.example.sensor.RequiredSensorType
 import com.example.sensor.SensorEngineState
 import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassPill
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.StatusAvailableGreen
+import com.example.ui.theme.arcSemanticColors
+import com.example.ui.theme.arcTextRoles
 import com.example.ui.theme.resolveAccentColor
 import java.util.Locale
 
@@ -96,6 +103,7 @@ private enum class ActiveSettingsDialog {
     EXPRESSIVE_SHAPE,
     EXPRESSIVE_ACCENT,
     HEADING_FORMAT,
+    SENSOR_MODE,
     THEME_MODE,
     ACCENT_PRESET,
     CALIBRATION,
@@ -112,6 +120,9 @@ fun SettingsScreen(
     viewModel: ArcCompassViewModel,
     onOpenSensorDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
+    compassDiagnosticsState: CompassDiagnosticsState = CompassDiagnosticsState(),
+    openCalibrationOnLaunch: Boolean = false,
+    onCalibrationLaunchConsumed: () -> Unit = {},
     bottomNavClearance: Dp = 16.dp
 ) {
     var activeDialog by rememberSaveable { mutableStateOf<ActiveSettingsDialog?>(null) }
@@ -121,7 +132,16 @@ fun SettingsScreen(
     var accessibilityExpanded by rememberSaveable { mutableStateOf(false) }
     var aboutExpanded by rememberSaveable { mutableStateOf(false) }
 
+    LaunchedEffect(openCalibrationOnLaunch) {
+        if (openCalibrationOnLaunch) {
+            compassExpanded = true
+            activeDialog = ActiveSettingsDialog.CALIBRATION
+            onCalibrationLaunchConsumed()
+        }
+    }
+
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val roles = MaterialTheme.arcTextRoles
 
     Box(
         modifier = modifier
@@ -153,19 +173,19 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Settings",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold
+                            style = roles.heading,
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
                             text = "Instruments, frosted glass & hardware diagnostics",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = roles.description,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     GlassPill(tintColor = MaterialTheme.colorScheme.surfaceVariant) {
                         Text(
                             text = "${settings.dialStyle.label} • ${settings.themeMode.label}",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = roles.technical,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
@@ -205,6 +225,7 @@ fun SettingsScreen(
                                 Text(
                                     text = stringResource(R.string.diagnostics_entry_title),
                                     style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
@@ -221,7 +242,7 @@ fun SettingsScreen(
                                             .size(7.dp)
                                             .clip(CircleShape)
                                             .background(
-                                                if (compassOk) StatusAvailableGreen
+                                                if (compassOk) MaterialTheme.arcSemanticColors.success
                                                 else MaterialTheme.colorScheme.primary
                                             )
                                     )
@@ -255,11 +276,11 @@ fun SettingsScreen(
                 }
             }
 
-            // 2. Compass & Dial Studio (Expandable)
+            // 2. Compass (Expandable)
             item(key = "section_compass_studio") {
-                val summary = "${settings.dialStyle.label} • ${settings.expressiveDialShape.label} • ${if (settings.trueNorthEnabled) "True N" else "Mag N"}"
+                val summary = "${settings.compassSensorMode.label} • ${settings.dialStyle.label} • ${if (settings.trueNorthEnabled) "True N" else "Mag N"}"
                 ExpandableSettingsSection(
-                    title = "Compass & Dial Studio",
+                    title = "Compass",
                     summary = summary,
                     icon = Icons.Outlined.Explore,
                     expanded = compassExpanded,
@@ -323,6 +344,31 @@ fun SettingsScreen(
                         swatchColor = expSwatch,
                         onClick = { activeDialog = ActiveSettingsDialog.EXPRESSIVE_ACCENT },
                         testTag = "setting_expressive_accent"
+                    )
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        icon = Icons.Outlined.Memory,
+                        title = "RAW sensor mode",
+                        subtitle = "Display live raw axes & timestamps for available hardware sensors on Compass",
+                        checked = settings.rawModeEnabled,
+                        onCheckedChange = viewModel::setRawMode,
+                        testTag = "setting_raw_mode"
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        icon = Icons.Outlined.Sensors,
+                        title = "Sensor mode",
+                        subtitle = "${settings.compassSensorMode.label} • Active: ${headingState.source.label}",
+                        onClick = { activeDialog = ActiveSettingsDialog.SENSOR_MODE },
+                        testTag = "setting_compass_sensor_mode"
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        icon = Icons.Outlined.CompassCalibration,
+                        title = "Sensor Calibration",
+                        subtitle = "${settings.compassSensorMode.label} • ${headingState.status.label} (${headingState.accuracy.label})",
+                        onClick = { activeDialog = ActiveSettingsDialog.CALIBRATION },
+                        testTag = "setting_compass_sensor_calibration"
                     )
                 }
             }
@@ -446,7 +492,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 5. Calibration, Accessibility & Night Vision (Expandable)
+            // 5. Accessibility & Night Vision (Expandable)
             item(key = "section_calibration_accessibility") {
                 val summary = buildList {
                     if (settings.hapticFeedbackEnabled) add("Haptics")
@@ -456,7 +502,7 @@ fun SettingsScreen(
                 }.ifEmpty { listOf("Standard") }.joinToString(" • ")
 
                 ExpandableSettingsSection(
-                    title = "Calibration, Accessibility & Night",
+                    title = "Accessibility & Night",
                     summary = summary,
                     icon = Icons.Outlined.AccessibilityNew,
                     expanded = accessibilityExpanded,
@@ -464,13 +510,6 @@ fun SettingsScreen(
                     onToggleExpand = { accessibilityExpanded = !accessibilityExpanded },
                     headerTestTag = "settings_section_accessibility"
                 ) {
-                    SettingsNavigationRow(
-                        icon = Icons.Outlined.CompassCalibration,
-                        title = "Calibration guide",
-                        subtitle = "Figure-8 calibration & magnetometer status",
-                        onClick = { activeDialog = ActiveSettingsDialog.CALIBRATION }
-                    )
-                    SettingsDivider()
                     SettingsToggleRow(
                         icon = Icons.Outlined.Vibration,
                         title = "Haptic feedback",
@@ -587,6 +626,36 @@ fun SettingsScreen(
                 onDismiss = { activeDialog = null }
             )
         }
+        ActiveSettingsDialog.SENSOR_MODE -> {
+            val availableTypes = engineState.sensorSpecs
+                .filter { it.isAvailable }
+                .map { it.sensorType }
+                .toSet()
+            SingleChoiceSettingDialog(
+                title = "Compass Sensor Mode",
+                options = CompassSensorMode.entries,
+                selected = settings.compassSensorMode,
+                labelProvider = { it.label },
+                subtitleProvider = { mode ->
+                    val supported = when (mode) {
+                        CompassSensorMode.AUTO_DEFAULT -> true
+                        CompassSensorMode.ROTATION_VECTOR -> availableTypes.contains(RequiredSensorType.ROTATION_VECTOR)
+                        CompassSensorMode.FUSION_ACCEL_MAG ->
+                            availableTypes.contains(RequiredSensorType.ACCELEROMETER) &&
+                                availableTypes.contains(RequiredSensorType.MAGNETIC_FIELD)
+                        CompassSensorMode.GAME_ROTATION_VECTOR -> true
+                        CompassSensorMode.GYROSCOPE_RELATIVE -> availableTypes.contains(RequiredSensorType.GYROSCOPE)
+                    }
+                    if (supported) {
+                        mode.description
+                    } else {
+                        "${mode.description} (Hardware sensor missing — falls back automatically)"
+                    }
+                },
+                onSelect = viewModel::setCompassSensorMode,
+                onDismiss = { activeDialog = null }
+            )
+        }
         ActiveSettingsDialog.THEME_MODE -> {
             SingleChoiceSettingDialog(
                 title = "Theme",
@@ -612,7 +681,12 @@ fun SettingsScreen(
                 accuracy = headingState.accuracy,
                 microTesla = engineState.telemetry.magneticFieldMicroTesla,
                 hasMagnetometer = engineState.capabilities.magneticFieldMonitor.source,
-                onDismiss = { activeDialog = null }
+                onDismiss = { activeDialog = null },
+                sensorMode = settings.compassSensorMode,
+                compassSource = headingState.source,
+                diagnosticStatus = headingState.status,
+                onRunSensorCheck = viewModel::requestCompassDiagnosticCheck,
+                onResetToDefault = viewModel::resetCompassRecovery
             )
         }
         ActiveSettingsDialog.CAPABILITY_SUMMARY -> {
@@ -647,6 +721,13 @@ fun SettingsScreen(
         }
         null -> Unit
     }
+
+    CompassInteractiveCheckDialog(
+        diagnosticsState = compassDiagnosticsState,
+        onConfirmStart = viewModel::startCompassDiagnosticCheck,
+        onCancel = viewModel::cancelCompassDiagnosticConfirmation,
+        onResetRecovery = viewModel::resetCompassRecovery
+    )
 }
 
 @Composable
@@ -677,6 +758,7 @@ private fun ExpandableSettingsSection(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
@@ -760,7 +842,12 @@ private fun SettingsNavigationRow(
             modifier = Modifier.size(20.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium
+            )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -809,7 +896,12 @@ private fun SettingsToggleRow(
             modifier = Modifier.size(20.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium
+            )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,

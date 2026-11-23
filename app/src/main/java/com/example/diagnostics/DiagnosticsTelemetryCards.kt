@@ -45,16 +45,13 @@ import com.example.sensor.LocationPermissionState
 import com.example.sensor.SensorEngineState
 import com.example.ui.theme.GlassCard
 import com.example.ui.theme.GlassTier
-import com.example.ui.theme.StatusAvailableGreen
-import com.example.ui.theme.StatusInitializingSky
-import com.example.ui.theme.StatusUnavailableSlate
-import com.example.ui.theme.StatusUnreliableRose
-import com.example.ui.theme.StatusWarningAmber
+import com.example.ui.theme.arcSemanticColors
 import java.util.Locale
 
 @Composable
 internal fun ObservationPill(isObserving: Boolean) {
-    val tint = if (isObserving) StatusAvailableGreen else StatusUnavailableSlate
+    val semanticColors = MaterialTheme.arcSemanticColors
+    val tint = if (isObserving) semanticColors.success else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         shape = RoundedCornerShape(50),
         color = tint.copy(alpha = 0.14f),
@@ -229,7 +226,7 @@ internal fun LiveTelemetrySection(
                     else -> "Awaiting sample"
                 },
                 icon = Icons.Outlined.CompassCalibration,
-                accentColor = if (hasMagnetometer) MaterialTheme.colorScheme.secondary else StatusUnavailableSlate,
+                accentColor = if (hasMagnetometer) MaterialTheme.colorScheme.secondary else MaterialTheme.arcSemanticColors.muted,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("telemetry_magnetic_tile")
@@ -253,7 +250,7 @@ internal fun LiveTelemetrySection(
                     else -> "Est. requires ref hPa"
                 },
                 icon = Icons.Outlined.Height,
-                accentColor = if (hasBarometer) MaterialTheme.colorScheme.primary else StatusUnavailableSlate,
+                accentColor = if (hasBarometer) MaterialTheme.colorScheme.primary else MaterialTheme.arcSemanticColors.muted,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("telemetry_barometer_tile")
@@ -356,7 +353,8 @@ private fun LocationTelemetryCard(
                     )
                     Text(
                         text = "Android Location & GNSS Altitude",
-                        style = MaterialTheme.typography.titleSmall
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 StatusBadge(status = locationState.status)
@@ -445,17 +443,18 @@ internal fun SectionHeader(
 
 @Composable
 fun StatusBadge(status: DiagnosticStatus) {
+    val semanticColors = MaterialTheme.arcSemanticColors
     val (color, text) = when (status) {
         DiagnosticStatus.AVAILABLE ->
-            StatusAvailableGreen to stringResource(R.string.status_available)
+            semanticColors.success to stringResource(R.string.status_available)
         DiagnosticStatus.UNAVAILABLE ->
-            StatusUnavailableSlate to stringResource(R.string.status_unavailable)
+            semanticColors.muted to stringResource(R.string.status_unavailable)
         DiagnosticStatus.PERMISSION_REQUIRED ->
-            StatusWarningAmber to stringResource(R.string.status_permission_required)
+            semanticColors.warning to stringResource(R.string.status_permission_required)
         DiagnosticStatus.INITIALIZING ->
-            StatusInitializingSky to stringResource(R.string.status_initializing)
+            semanticColors.info to stringResource(R.string.status_initializing)
         DiagnosticStatus.ACCURACY_UNRELIABLE ->
-            StatusUnreliableRose to stringResource(R.string.status_accuracy_unreliable)
+            semanticColors.error to stringResource(R.string.status_accuracy_unreliable)
     }
 
     Surface(

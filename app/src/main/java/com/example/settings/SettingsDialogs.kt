@@ -32,7 +32,11 @@ internal fun <T> SingleChoiceSettingDialog(
     onDismiss: () -> Unit
 ) {
     GlassDialog(onDismissRequest = onDismiss) {
-        Text(text = title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Spacer(Modifier.height(10.dp))
         Column(
             modifier = Modifier
@@ -63,7 +67,8 @@ internal fun <T> SingleChoiceSettingDialog(
                     Column {
                         Text(
                             text = labelProvider(option),
-                            style = MaterialTheme.typography.bodyLarge
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         val sub = subtitleProvider?.invoke(option)
                         if (sub != null) {
@@ -96,7 +101,11 @@ internal fun PrivacyAndAboutDialog(
     onDismiss: () -> Unit
 ) {
     GlassDialog(onDismissRequest = onDismiss) {
-        Text(text = title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Spacer(Modifier.height(10.dp))
         Text(
             text = body,

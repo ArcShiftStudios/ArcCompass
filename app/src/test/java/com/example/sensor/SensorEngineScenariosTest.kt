@@ -91,7 +91,7 @@ class SensorEngineScenariosTest {
         val accuracyMonitor = SensorAccuracyMonitor()
 
         val detection = detector.detect(isObserving = true)
-        val compass = CompassSensorController(provider, accuracyMonitor) { _, _ -> }
+        val compass = CompassSensorController(provider, accuracyMonitor, onTelemetrySample = { _, _ -> })
         val level = LevelSensorController(provider, accuracyMonitor) { _, _ -> }
 
         compass.configureAndStart(detection.resolvedSensors, hasLocationFix = true)
@@ -130,7 +130,7 @@ class SensorEngineScenariosTest {
         val accuracyMonitor = SensorAccuracyMonitor()
 
         val detection = detector.detect(isObserving = true)
-        val compass = CompassSensorController(provider, accuracyMonitor) { _, _ -> }
+        val compass = CompassSensorController(provider, accuracyMonitor, onTelemetrySample = { _, _ -> })
         val level = LevelSensorController(provider, accuracyMonitor) { _, _ -> }
 
         compass.configureAndStart(detection.resolvedSensors, hasLocationFix = false)
@@ -157,7 +157,7 @@ class SensorEngineScenariosTest {
         val accuracyMonitor = SensorAccuracyMonitor()
 
         val detection = detector.detect(isObserving = true)
-        val compass = CompassSensorController(provider, accuracyMonitor) { _, _ -> }
+        val compass = CompassSensorController(provider, accuracyMonitor, onTelemetrySample = { _, _ -> })
         compass.configureAndStart(detection.resolvedSensors, hasLocationFix = false)
 
         assertTrue(compass.headingState.value.isSupported)
@@ -258,7 +258,7 @@ class SensorEngineScenariosTest {
         val provider = FakeSensorProvider(context, sensors)
         val detection = SensorDetector(provider).detect(isObserving = true)
         val accuracyMonitor = SensorAccuracyMonitor()
-        val compass = CompassSensorController(provider, accuracyMonitor) { _, _ -> }
+        val compass = CompassSensorController(provider, accuracyMonitor, onTelemetrySample = { _, _ -> })
 
         compass.configureAndStart(detection.resolvedSensors, hasLocationFix = false)
         assertTrue(provider.registeredListeners.isNotEmpty())

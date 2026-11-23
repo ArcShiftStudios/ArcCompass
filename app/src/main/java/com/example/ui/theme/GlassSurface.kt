@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -106,7 +108,7 @@ fun FrostedAmbientBackdrop(
                     .then(blurMod)
             ) {
                 // Subtle diagonal atmospheric sheen across viewport so frosted sheets/cards show real tonal depth
-                val horizonAlpha = if (settings.redScreenFilterEnabled) 0.14f else if (isDark) 0.16f else 0.12f
+                val horizonAlpha = if (settings.redScreenFilterEnabled) 0.14f else if (isDark) 0.16f else 0.10f
                 drawRect(
                     brush = Brush.linearGradient(
                         colors = listOf(
@@ -123,9 +125,9 @@ fun FrostedAmbientBackdrop(
                 val instrumentHalo = Offset(size.width * 0.50f, size.height * 0.43f)
                 val bottomOrbCenter = Offset(size.width * 0.84f, size.height * 0.80f)
 
-                val topAlpha = if (settings.redScreenFilterEnabled) 0.18f else if (isDark) 0.24f else 0.16f
-                val haloAlpha = if (settings.redScreenFilterEnabled) 0.12f else if (isDark) 0.17f else 0.13f
-                val bottomAlpha = if (settings.redScreenFilterEnabled) 0.16f else if (isDark) 0.28f else 0.18f
+                val topAlpha = if (settings.redScreenFilterEnabled) 0.18f else if (isDark) 0.24f else 0.13f
+                val haloAlpha = if (settings.redScreenFilterEnabled) 0.12f else if (isDark) 0.17f else 0.10f
+                val bottomAlpha = if (settings.redScreenFilterEnabled) 0.16f else if (isDark) 0.28f else 0.14f
 
                 drawCircle(
                     brush = Brush.radialGradient(
@@ -170,6 +172,7 @@ fun GlassSurface(
     shape: Shape = MaterialTheme.shapes.large,
     tintColor: Color? = null,
     borderColor: Color? = null,
+    contentColor: Color? = null,
     elevation: Dp = 0.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -177,11 +180,16 @@ fun GlassSurface(
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
 
-    val baseSurface = tintColor ?: when (tier) {
-        GlassTier.CARD -> colorScheme.surface
-        GlassTier.SHEET -> colorScheme.surface
-        GlassTier.FLOATING_CHROME -> colorScheme.surfaceVariant
-        GlassTier.DIALOG -> colorScheme.surface
+    val hasTranslucentOverlayTint = tintColor != null && tintColor.alpha < 0.99f
+    val baseSurface = when {
+        tintColor == null -> when (tier) {
+            GlassTier.CARD -> colorScheme.surface
+            GlassTier.SHEET -> colorScheme.surface
+            GlassTier.FLOATING_CHROME -> colorScheme.surfaceVariant
+            GlassTier.DIALOG -> colorScheme.surface
+        }
+        hasTranslucentOverlayTint -> colorScheme.surface
+        else -> tintColor
     }
 
     val fillAlpha = remember(tier, settings.highContrastEnabled, settings.redScreenFilterEnabled, isDark) {
@@ -189,12 +197,19 @@ fun GlassSurface(
             0.96f
         } else {
             when (tier) {
-                GlassTier.CARD -> if (isDark) 0.48f else 0.64f
-                GlassTier.SHEET -> if (isDark) 0.62f else 0.78f
-                GlassTier.FLOATING_CHROME -> if (isDark) 0.54f else 0.72f
-                GlassTier.DIALOG -> if (isDark) 0.84f else 0.90f
+                GlassTier.CARD -> if (isDark) 0.54f else 0.76f
+                GlassTier.SHEET -> if (isDark) 0.68f else 0.86f
+                GlassTier.FLOATING_CHROME -> if (isDark) 0.60f else 0.82f
+                GlassTier.DIALOG -> if (isDark) 0.94f else 0.97f
             }
         }
+    }
+
+    val resolvedContentColor = contentColor ?: when {
+        tintColor != null && !hasTranslucentOverlayTint -> {
+            contentColorFor(tintColor).takeIf { it != Color.Unspecified } ?: colorScheme.onSurface
+        }
+        else -> colorScheme.onSurface
     }
 
     val specularTop = remember(settings.redScreenFilterEnabled, settings.highContrastEnabled, isDark, tier) {
@@ -203,21 +218,21 @@ fun GlassSurface(
             settings.highContrastEnabled -> Color.Transparent
             isDark -> Color.White.copy(
                 alpha = when (tier) {
-                    GlassTier.FLOATING_CHROME -> 0.13f
-                    GlassTier.SHEET -> 0.11f
-                    GlassTier.DIALOG -> 0.09f
-                    GlassTier.CARD -> 0.085f
+                    GlassTier.FLOATING_CHROME -> 0.12f
+                    GlassTier.SHEET -> 0.10f
+                    GlassTier.DIALOG -> 0.08f
+                    GlassTier.CARD -> 0.08f
                 }
             )
-            else -> Color.White.copy(alpha = 0.62f)
+            else -> Color.White.copy(alpha = 0.52f)
         }
     }
 
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
-            baseSurface.copy(alpha = (fillAlpha + 0.10f).coerceAtMost(0.96f)),
+            baseSurface.copy(alpha = (fillAlpha + 0.08f).coerceAtMost(0.96f)),
             baseSurface.copy(alpha = fillAlpha),
-            baseSurface.copy(alpha = (fillAlpha - 0.06f).coerceAtLeast(0.32f))
+            baseSurface.copy(alpha = (fillAlpha - 0.05f).coerceAtLeast(0.42f))
         )
     )
 
@@ -232,13 +247,13 @@ fun GlassSurface(
                 GlassTier.CARD -> 0.19f
             }
         )
-        else -> Color.White.copy(alpha = 0.82f)
+        else -> colorScheme.outline.copy(alpha = 0.34f)
     }
 
     val borderBrush = Brush.verticalGradient(
         colors = listOf(
             resolvedBorder,
-            resolvedBorder.copy(alpha = resolvedBorder.alpha * 0.35f)
+            resolvedBorder.copy(alpha = resolvedBorder.alpha * 0.45f)
         )
     )
 
@@ -246,9 +261,15 @@ fun GlassSurface(
         Modifier.shadow(
             elevation = elevation,
             shape = shape,
-            ambientColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.16f),
-            spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.16f)
+            ambientColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.14f),
+            spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.14f)
         )
+    } else {
+        Modifier
+    }
+
+    val overlayMod = if (hasTranslucentOverlayTint && tintColor != null) {
+        Modifier.background(tintColor.copy(alpha = tintColor.alpha.coerceAtMost(0.24f)))
     } else {
         Modifier
     }
@@ -258,6 +279,7 @@ fun GlassSurface(
             .then(shadowMod)
             .clip(shape)
             .background(gradientBrush)
+            .then(overlayMod)
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -267,9 +289,12 @@ fun GlassSurface(
                     )
                 )
             )
-            .border(width = 1.dp, brush = borderBrush, shape = shape),
-        content = content
-    )
+            .border(width = 1.dp, brush = borderBrush, shape = shape)
+    ) {
+        CompositionLocalProvider(LocalContentColor provides resolvedContentColor) {
+            content()
+        }
+    }
 }
 
 @Composable
@@ -279,6 +304,7 @@ fun GlassCard(
     shape: Shape = MaterialTheme.shapes.large,
     tintColor: Color? = null,
     borderColor: Color? = null,
+    contentColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     GlassSurface(
@@ -286,7 +312,8 @@ fun GlassCard(
         tier = tier,
         shape = shape,
         tintColor = tintColor,
-        borderColor = borderColor
+        borderColor = borderColor,
+        contentColor = contentColor
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -300,7 +327,9 @@ fun GlassPill(
     modifier: Modifier = Modifier,
     tintColor: Color? = null,
     borderColor: Color? = null,
-    contentColor: Color = tintColor?.let { contentColorFor(it) } ?: MaterialTheme.colorScheme.onSurface,
+    contentColor: Color = tintColor?.let {
+        contentColorFor(it).takeIf { resolved -> resolved != Color.Unspecified }
+    } ?: MaterialTheme.colorScheme.onSurface,
     content: @Composable BoxScope.() -> Unit
 ) {
     Surface(
@@ -314,6 +343,7 @@ fun GlassPill(
             shape = RoundedCornerShape(50),
             tintColor = tintColor,
             borderColor = borderColor,
+            contentColor = contentColor,
             content = content
         )
     }
